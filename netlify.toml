@@ -1,0 +1,42 @@
+# Servous Container Builder — Netlify config
+# Deploy target: containers.atyourservous.com (TBD — set custom domain after first deploy)
+#
+# REQUIRED env vars (Netlify Dashboard → Site settings → Environment):
+#
+#   Browser-safe:
+#     NEXT_PUBLIC_SUPABASE_URL        = https://bxoggqfqdwizimsltztq.supabase.co
+#     NEXT_PUBLIC_SUPABASE_ANON_KEY   = sb_publishable_...
+#
+#   Server-only:
+#     SUPABASE_SERVICE_ROLE_KEY       = eyJ... (admin DB writes; bypasses RLS)
+#
+# Auth note: Supabase magic-link redirect URL must include both
+# https://containers.atyourservous.com/auth/callback (prod) and
+# http://localhost:3000/auth/callback (dev) in
+# Supabase Dashboard → Auth → URL Configuration → Redirect URLs.
+
+[build]
+  command = "npm run build"
+  # No `publish` — the Netlify Next.js plugin handles output discovery automatically.
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Long-cache static assets emitted under /_next/static.
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Security headers; don't cache HTML — fresh data on every page load.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data: https://fonts.gstatic.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
