@@ -1,16 +1,26 @@
-// Servous wordmark — uses the hex/cube mark + small SERVOUS letterforms.
-// For places that want the full SERVOUS™ banner (sign-in hero), see WordmarkBanner.
+// Servous wordmark — hex mark image + the actual SERVOUS letterforms cropped
+// from the supplied brand banner. Using a real image (not CSS text) so the
+// chrome matches the brand exactly.
 
 import Image from "next/image";
 
 interface WordmarkProps {
-  /** Height in px of the hex mark and the proportional letterforms next to it. */
+  /** Height in px of the hex mark; wordmark text aligns to ~80% of this for visual balance. */
   height?: number;
   className?: string;
 }
 
+// Source dimensions of the cropped wordmark image (servous-wordmark-text.png).
+// Used to compute width while preserving aspect ratio.
+const WORDMARK_SRC_W = 724;
+const WORDMARK_SRC_H = 103;
+
 export function Wordmark({ height = 32, className = "" }: WordmarkProps) {
-  const fontSize = Math.round(height * 0.62);
+  // Wordmark text scaled so its visual height feels balanced next to the hex mark.
+  // Letters fill less of their bounding box than the cube does, so we go ~78%.
+  const textHeight = Math.round(height * 0.78);
+  const textWidth = Math.round((textHeight * WORDMARK_SRC_W) / WORDMARK_SRC_H);
+
   return (
     <span
       className={"inline-flex items-center " + className}
@@ -29,18 +39,19 @@ export function Wordmark({ height = 32, className = "" }: WordmarkProps) {
           objectFit: "contain",
         }}
       />
-      <span
+      <Image
+        src="/brand/servous-wordmark-text.png"
+        alt="Servous"
+        width={textWidth}
+        height={textHeight}
+        priority
         style={{
-          fontFamily: "var(--font-geist), sans-serif",
-          fontWeight: 700,
-          letterSpacing: "0.16em",
-          fontSize,
-          color: "var(--ink)",
-          lineHeight: 1,
+          display: "block",
+          height: textHeight,
+          width: textWidth,
+          objectFit: "contain",
         }}
-      >
-        SERVOUS
-      </span>
+      />
     </span>
   );
 }
