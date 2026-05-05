@@ -37,6 +37,8 @@ export interface CatalogCategory {
 
 export interface VendorCatalog {
   vendorId: string;
+  /** URL-friendly slug for this customer's access to this vendor catalog. */
+  slug: string;
   /** Customer-facing catalog name. Vendor identity is intentionally hidden. */
   displayName: string;
   containerCode: ContainerCode;
@@ -54,6 +56,7 @@ export interface VendorCatalog {
 
 export interface CatalogSummary {
   vendorId: string;
+  slug: string;
   displayName: string;
   containerCode: ContainerCode;
   termsLabel: string;

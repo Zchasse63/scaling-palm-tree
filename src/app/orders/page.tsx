@@ -72,7 +72,7 @@ export default async function OrdersPage() {
             <div className="t-eyebrow">Order History</div>
             <div className="t-h1">Container orders</div>
           </div>
-          <Link href="/catalogs" style={{ textDecoration: "none" }}>
+          <Link href="/" style={{ textDecoration: "none" }}>
             <Button kind="secondary">Build a Container</Button>
           </Link>
         </div>
@@ -90,7 +90,7 @@ export default async function OrdersPage() {
             <div className="t-cap" style={{ marginBottom: 24 }}>
               Build your first container from any of your active catalogs.
             </div>
-            <Link href="/catalogs" style={{ textDecoration: "none" }}>
+            <Link href="/" style={{ textDecoration: "none" }}>
               <Button kind="primary">Choose a catalog</Button>
             </Link>
           </div>

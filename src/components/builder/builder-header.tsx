@@ -124,7 +124,7 @@ export function BuilderHeader({
               {others.map((o) => (
                 <Link
                   key={o.vendorId}
-                  href={{ pathname: "/build", query: { catalog: o.vendorId } }}
+                  href={{ pathname: "/", query: { c: o.slug } }}
                   className="row-hover"
                   style={{
                     padding: "10px 14px",
@@ -196,7 +196,7 @@ export function BuilderHeader({
               }}
             >
               <Link
-                href="/catalogs"
+                href="/"
                 className="row-hover"
                 style={{
                   padding: "10px 14px",

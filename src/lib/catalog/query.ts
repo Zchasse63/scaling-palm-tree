@@ -30,7 +30,7 @@ export async function fetchCustomerCatalogs(
   const { data: accessRows, error: accessErr } = await admin
     .from("customer_catalog_access")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select("vendor_id, container_type, terms_label, currency, display_name" as any)
+    .select("vendor_id, container_type, terms_label, currency, display_name, slug" as any)
     .eq("customer_id", customerId)
     .eq("is_active", true);
   if (accessErr) throw new Error("catalog access lookup failed: " + accessErr.message);
@@ -60,6 +60,7 @@ export async function fetchCustomerCatalogs(
     const s = stats.get(a.vendor_id) ?? { skuCount: 0, categoryNames: new Set() };
     return {
       vendorId: a.vendor_id,
+      slug: a.slug ?? a.vendor_id,
       displayName: a.display_name ?? "Servous Catalog",
       containerCode: a.container_type as ContainerCode,
       termsLabel: a.terms_label,
@@ -71,6 +72,8 @@ export async function fetchCustomerCatalogs(
 }
 
 export interface CatalogAccess {
+  vendorId: string;
+  slug: string;
   containerCode: ContainerCode;
   termsLabel: string;
   currency: string;
@@ -80,10 +83,53 @@ export interface CatalogAccess {
   minFillPct: number;
 }
 
+const SELECT_ACCESS_FIELDS =
+  "vendor_id, container_type, terms_label, currency, display_name, slug, min_case_qty, min_fill_pct";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToAccess(row: any): CatalogAccess {
+  return {
+    vendorId: row.vendor_id,
+    slug: row.slug ?? row.vendor_id, // fallback to UUID if slug not yet set
+    containerCode: row.container_type as ContainerCode,
+    termsLabel: row.terms_label,
+    currency: row.currency,
+    displayName: row.display_name ?? "Servous Catalog",
+    minCaseQty: row.min_case_qty ?? 100,
+    minFillPct: Number(row.min_fill_pct ?? 100),
+  };
+}
+
 /**
- * Verify a customer has access to a vendor catalog. Returns the access row
- * or null. The HTTP handler should 404 / redirect on null.
+ * Resolve the customer's catalog by slug (or the only one they have access to
+ * when slug is not specified). Returns null if no match / no access.
  */
+export async function resolveCustomerCatalogAccess(
+  customerId: string,
+  slug: string | null,
+): Promise<CatalogAccess | null> {
+  const admin = adminClient();
+  let query = admin
+    .from("customer_catalog_access")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .select(SELECT_ACCESS_FIELDS as any)
+    .eq("customer_id", customerId)
+    .eq("is_active", true);
+  if (slug) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    query = (query as any).eq("slug", slug);
+  }
+  const { data, error } = await query;
+  if (error) throw new Error("access check failed: " + error.message);
+  if (!data || data.length === 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = data as any[];
+  // No slug specified: only valid if customer has exactly one catalog.
+  if (!slug && rows.length > 1) return null;
+  return rowToAccess(rows[0]);
+}
+
+/** Backwards-compat: vendorId-keyed access lookup, used by submit-order. */
 export async function verifyCustomerCatalogAccess(
   customerId: string,
   vendorId: string,
@@ -92,23 +138,14 @@ export async function verifyCustomerCatalogAccess(
   const { data, error } = await admin
     .from("customer_catalog_access")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select("container_type, terms_label, currency, is_active, display_name, min_case_qty, min_fill_pct" as any)
+    .select(SELECT_ACCESS_FIELDS as any)
     .eq("customer_id", customerId)
     .eq("vendor_id", vendorId)
     .eq("is_active", true)
     .maybeSingle();
   if (error) throw new Error("access check failed: " + error.message);
   if (!data) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const row = data as any;
-  return {
-    containerCode: row.container_type as ContainerCode,
-    termsLabel: row.terms_label,
-    currency: row.currency,
-    displayName: row.display_name ?? "Servous Catalog",
-    minCaseQty: row.min_case_qty ?? 100,
-    minFillPct: Number(row.min_fill_pct ?? 100),
-  };
+  return rowToAccess(data);
 }
 
 /**
@@ -186,6 +223,7 @@ export async function fetchCatalogForVendor(
 
   return {
     vendorId,
+    slug: access.slug,
     displayName: access.displayName,
     containerCode: access.containerCode,
     termsLabel: access.termsLabel,

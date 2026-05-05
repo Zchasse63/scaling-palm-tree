@@ -15,7 +15,7 @@ export function CatalogCard({ catalog }: { catalog: CatalogSummary }) {
 
   return (
     <Link
-      href={{ pathname: "/build", query: { catalog: catalog.vendorId } }}
+      href={{ pathname: "/", query: { c: catalog.slug } }}
       className="row-hover"
       style={{
         cursor: "pointer",

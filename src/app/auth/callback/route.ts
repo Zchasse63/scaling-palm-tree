@@ -12,12 +12,12 @@ import { createClient } from "@/lib/supabase/server";
  * would steal a freshly-minted session.
  */
 function safeNext(raw: string | null): string {
-  if (!raw) return "/catalogs";
+  if (!raw) return "/";
   // Must start with a single slash — not "//" (protocol-relative).
-  if (raw.length < 1 || raw[0] !== "/" || raw[1] === "/") return "/catalogs";
+  if (raw.length < 1 || raw[0] !== "/" || raw[1] === "/") return "/";
   // Disallow control chars and the auth namespace itself.
-  if (/[\x00-\x1f\\]/.test(raw)) return "/catalogs";
-  if (raw.startsWith("/auth/")) return "/catalogs";
+  if (/[\x00-\x1f\\]/.test(raw)) return "/";
+  if (raw.startsWith("/auth/")) return "/";
   return raw;
 }
 
