@@ -51,8 +51,9 @@ export function BuilderHeader({
         position: "sticky",
         top: 0,
         zIndex: 30,
-        background: "var(--paper)",
-        borderBottom: "1px solid var(--rule)",
+        background: "var(--ink)",
+        color: "white",
+        borderBottom: "1px solid var(--char)",
       }}
     >
       <div
@@ -79,24 +80,25 @@ export function BuilderHeader({
             position: "relative",
           }}
         >
-          <div className="t-eyebrow">Container Builder</div>
+          <div className="t-eyebrow" style={{ color: "var(--warm)" }}>Container Builder</div>
           <div
             className="flex items-center"
             style={{
               gap: 6,
               marginTop: 2,
               cursor: others.length ? "pointer" : "default",
+              color: "white",
             }}
             onClick={() => others.length && setOpen((v) => !v)}
           >
-            <div className="t-sub" style={{ fontSize: 17 }}>
+            <div className="t-sub" style={{ fontSize: 17, color: "white" }}>
               {catalog.displayName}
             </div>
             {others.length > 0 ? <Caret /> : null}
           </div>
           <div
             className="mono"
-            style={{ fontSize: 11, color: "var(--mid)", marginTop: 2 }}
+            style={{ fontSize: 11, color: "var(--warm)", marginTop: 2 }}
           >
             {containerLabel} · {catalog.termsLabel} · {catalog.currency}
           </div>
@@ -161,8 +163,8 @@ export function BuilderHeader({
           }}
         >
           <div className="flex flex-col" style={{ alignItems: "flex-end", lineHeight: 1.2 }}>
-            <div className="t-body" style={{ fontWeight: 500 }}>{customerName}</div>
-            <div className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
+            <div className="t-body" style={{ fontWeight: 500, color: "white" }}>{customerName}</div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--warm)" }}>
               Servous customer
             </div>
           </div>
@@ -171,7 +173,8 @@ export function BuilderHeader({
             onClick={() => setAcctOpen((v) => !v)}
             style={{
               background: "transparent",
-              border: "1px solid var(--rule-strong)",
+              border: "1px solid var(--mid)",
+              color: "white",
               height: 32,
               width: 32,
               cursor: "pointer",

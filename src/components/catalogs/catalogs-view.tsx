@@ -16,7 +16,13 @@ interface CatalogsViewProps {
 export function CatalogsView({ customerName, catalogs }: CatalogsViewProps) {
   return (
     <div className="paper-bg" style={{ minHeight: "100vh" }}>
-      <header style={{ borderBottom: "1px solid var(--rule)" }}>
+      <header
+        style={{
+          background: "var(--ink)",
+          color: "white",
+          borderBottom: "1px solid var(--char)",
+        }}
+      >
         <div
           className="flex items-center"
           style={{
@@ -28,16 +34,16 @@ export function CatalogsView({ customerName, catalogs }: CatalogsViewProps) {
         >
           <Wordmark height={32} />
           <div className="flex items-center" style={{ gap: 18 }}>
-            <div className="mono t-cap">{customerName}</div>
+            <div className="mono t-cap" style={{ color: "var(--warm)" }}>{customerName}</div>
             <SignOutButton
               ariaLabel="Sign out"
               className="flex items-center justify-center"
               style={{
                 background: "transparent",
-                border: "1px solid var(--rule-strong)",
+                border: "1px solid var(--mid)",
                 height: 32,
                 width: 32,
-                color: "var(--ink)",
+                color: "white",
                 cursor: "pointer",
               }}
             >
