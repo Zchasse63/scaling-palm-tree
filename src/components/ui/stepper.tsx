@@ -75,22 +75,22 @@ export function Stepper({
   const onBlur = () => {
     let v = parseInt(local || "0", 10);
     if (Number.isNaN(v) || v < 0) v = 0;
-    if (v === 0) {
-      onChange(0);
-      return;
-    }
     // Pack-multiple snap.
-    if (packMultiple && packMultiple > 0 && v % packMultiple !== 0) {
+    if (v > 0 && packMultiple && packMultiple > 0 && v % packMultiple !== 0) {
       v = Math.round(v / packMultiple) * packMultiple;
       setNote(`Ships in units of ${packMultiple}.`);
     }
-    // Below min becomes the min (or 0 — choose closer).
+    // Below min becomes the min (or 0 — whichever is closer).
     if (v > 0 && v < minIfActive) {
-      // Closer to 0 or to min?
       v = v <= minIfActive / 2 ? 0 : minIfActive;
       if (v > 0) setNote(`Minimum ${minIfActive} cases for this line.`);
     }
-    onChange(Math.min(max, v));
+    const final = Math.max(0, Math.min(max, v));
+    // Always reset the displayed string, even when the parent value doesn't
+    // change — otherwise React.useState bails out and the input shows the
+    // stale typed value (BUG-002 from the QA pipeline).
+    setLocal(String(final));
+    onChange(final);
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {

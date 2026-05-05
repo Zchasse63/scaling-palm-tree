@@ -13,7 +13,6 @@
 // the underlying vendor identity. The customer sees URLs like /, /?c=foil-aluminum,
 // /orders, /signin — nothing else.
 
-import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
 import {
   fetchCatalogForVendor,
@@ -46,14 +45,28 @@ export default async function HomePage({ searchParams }: HomeProps) {
     );
   }
 
-  // Resolve the catalog: by slug if specified, otherwise the only one.
-  const access = await resolveCustomerCatalogAccess(
+  // Try to resolve the catalog. If the slug is bogus, fall back to the
+  // customer's first catalog rather than redirecting — `redirect()` here
+  // races with middleware cookie propagation and intermittently nukes the
+  // session (BUG-001 from the QA pipeline).
+  let access = await resolveCustomerCatalogAccess(
     session.customerId,
     sp.c ?? null,
   );
+  if (!access && allCatalogs.length > 0) {
+    // Invalid or stale slug — silently land on the first catalog.
+    access = await resolveCustomerCatalogAccess(
+      session.customerId,
+      allCatalogs[0].slug,
+    );
+  }
   if (!access) {
-    // Either an invalid slug or somehow ambiguous — bounce to the cleanest URL.
-    redirect("/");
+    return (
+      <NoAccessView
+        customerName={session.customerName}
+        message="That catalog isn't available. Contact your Servous representative if this looks wrong."
+      />
+    );
   }
 
   const catalog = await fetchCatalogForVendor(access.vendorId, access);
