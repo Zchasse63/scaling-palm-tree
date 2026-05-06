@@ -107,6 +107,11 @@ export const test = base.extend<AuthFixtures>({
 
   // authenticatedPage fixture — restores the pre-built auth session from globalSetup.
   // Each test gets a fresh browser context with the saved cookies; no new token needed.
+  //
+  // Navigation default: lands on the foil catalog builder (`/?c=foil-aluminum`).
+  // The test customer has multiple catalogs since Phase B, so bare `/` renders
+  // the procurement dashboard. Tests that want the dashboard must navigate to
+  // bare `/` themselves via `await page.goto("/")`.
   authenticatedPage: async ({ browser }, use) => {
     // Restore the auth state saved by global setup.
     const context = await browser.newContext({
@@ -114,9 +119,9 @@ export const test = base.extend<AuthFixtures>({
     });
     const page = await context.newPage();
 
-    // Navigate to "/" to confirm the session is valid.
-    await page.goto("/");
-    await page.waitForURL("/", { timeout: 15_000 });
+    // Navigate to the foil builder by default to preserve test compatibility.
+    await page.goto("/?c=foil-aluminum");
+    await page.waitForURL(/\/\?c=foil-aluminum/, { timeout: 15_000 });
 
     await use(page);
 
@@ -128,8 +133,8 @@ export const test = base.extend<AuthFixtures>({
   signOutPage: async ({ browser }, use) => {
     const context = await createFreshAuthContext(browser);
     const page = await context.newPage();
-    await page.goto("/");
-    await page.waitForURL("/", { timeout: 15_000 });
+    await page.goto("/?c=foil-aluminum");
+    await page.waitForURL(/\/\?c=foil-aluminum/, { timeout: 15_000 });
 
     await use(page);
 

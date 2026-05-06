@@ -146,37 +146,64 @@ test("P2-07 open redirect with /auth/ prefix is clamped to /", async ({ page }) 
 });
 
 // ---------------------------------------------------------------------------
-// P1-25 — Auto-redirect single catalog (verified within auth flow)
+// P1-25 — multi-catalog account lands on the procurement dashboard on /
+//
+// Phase B: the test customer now has TWO catalogs (foil-aluminum + plastics).
+// Bare `/` should render the dashboard's "Choose a catalog" heading.
+// Single-catalog auto-resolve behavior is preserved in code (HomePage redirects
+// when allCatalogs.length === 1) but is no longer exercised by the test customer.
 // ---------------------------------------------------------------------------
-test("P1-25 single-catalog customer auto-redirects to builder on /", async ({ authenticatedPage }) => {
+test("P1-25 multi-catalog customer lands on procurement dashboard on /", async ({ authenticatedPage }) => {
   const page = authenticatedPage;
-  // Test customer has exactly one catalog (foil-aluminum / Whitestone).
-  expect(page.url()).toMatch(/localhost:3000\/$/);
-  const builder = new BuilderPage(page);
-  await builder.catalogTitle.waitFor({ timeout: 10_000 });
+  // The fixture lands on the foil builder by default; navigate to bare `/`
+  // to exercise the dashboard.
+  await page.goto("/");
+  await expect(page.getByText("Choose a catalog")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Foil & Aluminum Products")).toBeVisible();
+  await expect(page.getByText("Plastics & Disposables")).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
-// P0-13 — Dashboard MUST NOT render for single-catalog accounts (regression guard)
+// P0-13 — Auto-resolve still works in code (single-catalog UX preserved)
 //
-// Phase-A regression guard: when `/` becomes a procurement dashboard for
-// multi-catalog accounts, single-catalog accounts must continue to land on
-// the builder directly, with no dashboard surface visible. This test fails
-// fast if a future change accidentally shows the catalog grid for accounts
-// that should auto-resolve.
+// Verifies that when a customer's catalog count drops to 1 (we deactivate one
+// access row temporarily), bare `/` still redirects to the builder for the
+// remaining catalog without showing the dashboard. Re-activates after.
 // ---------------------------------------------------------------------------
-test("P0-13 single-catalog account does NOT see procurement dashboard on /", async ({ authenticatedPage }) => {
+test("P0-13 single-catalog auto-resolve still works (code path preserved)", async ({ authenticatedPage }) => {
   const page = authenticatedPage;
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  const { createClient: createSupabase } = await import("@supabase/supabase-js");
+  const admin = createSupabase(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
 
-  // INVARIANT 1: Builder chrome is visible.
-  const builder = new BuilderPage(page);
-  await builder.catalogTitle.waitFor({ timeout: 10_000 });
+  // Deactivate the plastics access row, leaving only the foil catalog active.
+  await admin
+    .from("customer_catalog_access")
+    .update({ is_active: false })
+    .eq("customer_id", "68f5af45-d9b2-4f74-83c0-3275df0d6fa1")
+    .eq("slug", "plastics");
 
-  // INVARIANT 2: The dashboard's catalog-selector heading must NOT appear
-  // (this string only renders inside CatalogsView, which is the multi-catalog UI).
-  await expect(page.getByText("Choose a catalog")).toHaveCount(0);
+  try {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    // INVARIANT 1: Builder chrome is visible.
+    const builder = new BuilderPage(page);
+    await builder.catalogTitle.waitFor({ timeout: 10_000 });
+
+    // INVARIANT 2: The dashboard heading must NOT render for single-catalog UX.
+    await expect(page.getByText("Choose a catalog")).toHaveCount(0);
+  } finally {
+    // Re-activate plastics so other tests see the multi-catalog state.
+    await admin
+      .from("customer_catalog_access")
+      .update({ is_active: true })
+      .eq("customer_id", "68f5af45-d9b2-4f74-83c0-3275df0d6fa1")
+      .eq("slug", "plastics");
+  }
 
   // INVARIANT 3: Volume Fill stat (builder-only) is visible.
   await expect(page.getByText("Volume Fill", { exact: false })).toBeVisible();

@@ -36,8 +36,9 @@ export class BuilderPage {
     // inside the aside. We locate by the "%" sibling span.
     this.volumePctStat = this.summaryPanel.locator(".t-stat").first();
 
-    // Weight: in the "Weight" section of the aside — locate by "/ 26500 kg" text.
-    this.weightDisplay = this.summaryPanel.locator("text=/ 26,500 kg").first();
+    // Weight: in the "Weight" section of the aside — locate by "/ 20,000 kg" text
+    // (40HC US road-delivery payload cap; see src/lib/containers.ts).
+    this.weightDisplay = this.summaryPanel.locator("text=/ 20,000 kg").first();
 
     // Submit button — only text that distinguishes it.
     this.submitButton = page.locator('button', { hasText: "Submit Container Order" });
@@ -56,7 +57,13 @@ export class BuilderPage {
     this.catalogTitle = page.locator("div.t-h2").first();
   }
 
-  async goto(slug?: string) {
+  /**
+   * Navigate to the builder. With no argument, defaults to the foil catalog —
+   * this preserves test compatibility now that the test customer has multiple
+   * catalogs (and `/` would otherwise render the procurement dashboard).
+   * Pass `null` to navigate to bare `/` (e.g., to test the dashboard).
+   */
+  async goto(slug: string | null = "foil-aluminum") {
     const url = slug ? `/?c=${slug}` : "/";
     await this.page.goto(url);
   }
