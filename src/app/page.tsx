@@ -19,6 +19,7 @@ import {
   fetchCustomerCatalogs,
   resolveCustomerCatalogAccess,
 } from "@/lib/catalog/query";
+import { fetchLastOrderPerCatalog } from "@/lib/orders/query";
 import { BuilderClient } from "@/components/builder/builder-client";
 import { CatalogsView } from "@/components/catalogs/catalogs-view";
 import { NoAccessView } from "@/components/catalogs/no-access-view";
@@ -38,10 +39,17 @@ export default async function HomePage({ searchParams }: HomeProps) {
     return <NoAccessView customerName={session.customerName} />;
   }
 
-  // No slug + multi-catalog account → render selector.
+  // No slug + multi-catalog account → render the procurement dashboard.
+  // Single-catalog accounts skip this entirely and auto-resolve to the
+  // builder below — preserving the current single-catalog UX exactly.
   if (!sp.c && allCatalogs.length > 1) {
+    const lastOrderBySlug = await fetchLastOrderPerCatalog(session.customerId);
     return (
-      <CatalogsView customerName={session.customerName} catalogs={allCatalogs} />
+      <CatalogsView
+        customerName={session.customerName}
+        catalogs={allCatalogs}
+        lastOrderBySlug={lastOrderBySlug}
+      />
     );
   }
 

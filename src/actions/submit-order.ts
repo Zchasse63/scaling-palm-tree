@@ -173,6 +173,11 @@ export async function submitOrderAction(
         metadata: {
           source: "container_builder",
           vendor_id: input.vendorId,
+          // Catalog slug is the customer-facing catalog identity; needed to
+          // attribute orders back to the right access row when a customer has
+          // multiple catalogs from the same vendor.
+          catalog_slug: catalog.slug,
+          catalog_display_name: catalog.displayName,
           container_code: catalog.containerCode,
           terms_label: catalog.termsLabel,
           currency: catalog.currency,

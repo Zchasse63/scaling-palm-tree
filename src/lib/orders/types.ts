@@ -23,3 +23,13 @@ export interface CustomerOrderLine {
 export interface CustomerOrderDetail extends CustomerOrderSummary {
   lines: CustomerOrderLine[];
 }
+
+/** Most-recent-order summary attached to each catalog card on the dashboard. */
+export interface LastOrderForCatalog {
+  id: string;
+  orderNumber: string | null;
+  status: string;
+  quotedAt: string;
+  caseCount: number;
+  total: number;
+}

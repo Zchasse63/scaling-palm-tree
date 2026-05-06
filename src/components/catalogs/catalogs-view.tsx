@@ -1,19 +1,27 @@
-// Catalog selector — rendered inside `/` when the customer has 2+ catalogs and
-// hasn't picked one via `?c=<slug>` yet. Single-catalog accounts skip this view
-// entirely and land on the builder.
+// Procurement dashboard — rendered inside `/` when the customer has 2+ catalogs
+// and hasn't picked one via `?c=<slug>` yet. Single-catalog accounts skip this
+// view entirely and land on the builder via the home-page auto-resolve path.
+//
+// Each catalog card shows: catalog identity, default container, SKU count, and
+// (when present) the customer's most recent container order for this catalog.
 
+import Link from "next/link";
 import { Wordmark } from "@/components/ui/wordmark";
 import { Caret } from "@/components/ui/caret";
 import { SignOutButton } from "@/components/ui/sign-out-button";
 import { CatalogCard } from "@/components/catalogs/catalog-card";
 import type { CatalogSummary } from "@/lib/catalog/types";
+import type { LastOrderForCatalog } from "@/lib/orders/types";
 
 interface CatalogsViewProps {
   customerName: string;
   catalogs: CatalogSummary[];
+  /** Slug → most-recent-order summary for that catalog. Optional. */
+  lastOrderBySlug?: Map<string, LastOrderForCatalog>;
 }
 
-export function CatalogsView({ customerName, catalogs }: CatalogsViewProps) {
+export function CatalogsView({ customerName, catalogs, lastOrderBySlug }: CatalogsViewProps) {
+  const totalOrders = lastOrderBySlug?.size ?? 0;
   return (
     <div className="paper-bg" style={{ minHeight: "100vh" }}>
       <header
@@ -58,12 +66,22 @@ export function CatalogsView({ customerName, catalogs }: CatalogsViewProps) {
           style={{ alignItems: "flex-end", justifyContent: "space-between", marginBottom: 28 }}
         >
           <div className="flex flex-col" style={{ gap: 6 }}>
-            <div className="t-eyebrow">Available Catalogs</div>
+            <div className="t-eyebrow">Procurement</div>
             <div className="t-h1">Choose a catalog</div>
-            <div className="mono t-cap" style={{ marginTop: 4 }}>For {customerName}</div>
+            <div className="mono t-cap" style={{ marginTop: 4 }}>
+              For {customerName}
+              {totalOrders > 0 ? (
+                <>
+                  {" · "}
+                  <Link href="/orders" style={{ color: "var(--ink)", textDecoration: "underline" }}>
+                    View order history
+                  </Link>
+                </>
+              ) : null}
+            </div>
           </div>
           <div className="mono t-cap">
-            {catalogs.length} active · refreshed daily
+            {catalogs.length} catalog{catalogs.length === 1 ? "" : "s"} · refreshed daily
           </div>
         </div>
         <div
@@ -81,7 +99,11 @@ export function CatalogsView({ customerName, catalogs }: CatalogsViewProps) {
           }}
         >
           {catalogs.map((cat) => (
-            <CatalogCard key={cat.vendorId} catalog={cat} />
+            <CatalogCard
+              key={cat.vendorId}
+              catalog={cat}
+              lastOrder={lastOrderBySlug?.get(cat.slug) ?? null}
+            />
           ))}
         </div>
       </main>

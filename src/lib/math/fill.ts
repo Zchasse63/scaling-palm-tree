@@ -101,3 +101,36 @@ export function maxCasesForSku(sku: CatalogSku): number | null {
   if (!sku.casesPer40hc || sku.casesPer40hc <= 0) return null;
   return sku.casesPer40hc;
 }
+
+/**
+ * Returns vendor_product_ids present in the qty map but NOT in the catalog.
+ * Use this on hydration (e.g., loading a saved draft) to detect SKUs that
+ * have been deactivated since the qty map was written. The caller should
+ * strip those keys and show the customer a banner explaining what happened.
+ *
+ * Without this defense, a stale SKU silently contributes 0 to fill percent —
+ * the cart looks under-filled, the customer doesn't know why, and the missing
+ * items disappear without explanation.
+ */
+export function getStaleSkus(catalog: VendorCatalog, qtys: QtyMap): string[] {
+  const live = new Set<string>();
+  for (const cat of catalog.categories) {
+    for (const sku of cat.skus) live.add(sku.vendorProductId);
+  }
+  const stale: string[] = [];
+  for (const [id, qty] of Object.entries(qtys)) {
+    if (qty > 0 && !live.has(id)) stale.push(id);
+  }
+  return stale;
+}
+
+/** Returns a new qty map with stale keys removed. Pure; doesn't mutate input. */
+export function pruneStaleSkus(catalog: VendorCatalog, qtys: QtyMap): QtyMap {
+  const stale = new Set(getStaleSkus(catalog, qtys));
+  if (stale.size === 0) return qtys;
+  const out: QtyMap = {};
+  for (const [id, qty] of Object.entries(qtys)) {
+    if (!stale.has(id)) out[id] = qty;
+  }
+  return out;
+}

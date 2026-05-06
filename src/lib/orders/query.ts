@@ -3,7 +3,7 @@
 import "server-only";
 import { adminClient } from "@/lib/supabase/admin";
 import { getContainerSpec } from "@/lib/containers";
-import type { CustomerOrderSummary } from "./types";
+import type { CustomerOrderSummary, LastOrderForCatalog } from "./types";
 
 export async function fetchOrdersForCustomer(
   customerId: string,
@@ -88,4 +88,42 @@ export async function fetchOrdersForCustomer(
       lineCount: lineCountByOrder.get(o.id) ?? 0,
     };
   });
+}
+
+/**
+ * Returns the most recent order per catalog slug for a given customer.
+ *
+ * Matches orders to catalogs by `metadata->>'catalog_slug'` (set by submit-order
+ * action since Phase A). Older orders that predate slug-stamping fall through
+ * cleanly — they just won't show as "last order" for any catalog. New orders
+ * always carry the slug, so this becomes accurate going forward.
+ */
+export async function fetchLastOrderPerCatalog(
+  customerId: string,
+): Promise<Map<string, LastOrderForCatalog>> {
+  const admin = adminClient();
+  const { data, error } = await admin
+    .from("customer_orders")
+    .select("id, order_number, status, quoted_at, case_count, total, metadata")
+    .eq("customer_id", customerId)
+    .order("quoted_at", { ascending: false })
+    .limit(200);
+  if (error) throw new Error("last-order-per-catalog fetch failed: " + error.message);
+
+  const out = new Map<string, LastOrderForCatalog>();
+  for (const o of data ?? []) {
+    const meta = o.metadata as Record<string, unknown> | null;
+    const slug = meta && typeof meta.catalog_slug === "string" ? meta.catalog_slug : null;
+    if (!slug) continue;
+    if (out.has(slug)) continue; // first hit (most recent due to ORDER BY desc)
+    out.set(slug, {
+      id: o.id,
+      orderNumber: o.order_number,
+      status: o.status,
+      quotedAt: o.quoted_at,
+      caseCount: o.case_count ?? 0,
+      total: Number(o.total ?? 0),
+    });
+  }
+  return out;
 }

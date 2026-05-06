@@ -155,3 +155,29 @@ test("P1-25 single-catalog customer auto-redirects to builder on /", async ({ au
   const builder = new BuilderPage(page);
   await builder.catalogTitle.waitFor({ timeout: 10_000 });
 });
+
+// ---------------------------------------------------------------------------
+// P0-13 — Dashboard MUST NOT render for single-catalog accounts (regression guard)
+//
+// Phase-A regression guard: when `/` becomes a procurement dashboard for
+// multi-catalog accounts, single-catalog accounts must continue to land on
+// the builder directly, with no dashboard surface visible. This test fails
+// fast if a future change accidentally shows the catalog grid for accounts
+// that should auto-resolve.
+// ---------------------------------------------------------------------------
+test("P0-13 single-catalog account does NOT see procurement dashboard on /", async ({ authenticatedPage }) => {
+  const page = authenticatedPage;
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+
+  // INVARIANT 1: Builder chrome is visible.
+  const builder = new BuilderPage(page);
+  await builder.catalogTitle.waitFor({ timeout: 10_000 });
+
+  // INVARIANT 2: The dashboard's catalog-selector heading must NOT appear
+  // (this string only renders inside CatalogsView, which is the multi-catalog UI).
+  await expect(page.getByText("Choose a catalog")).toHaveCount(0);
+
+  // INVARIANT 3: Volume Fill stat (builder-only) is visible.
+  await expect(page.getByText("Volume Fill", { exact: false })).toBeVisible();
+});
