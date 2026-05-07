@@ -1,0 +1,51 @@
+name: Deploy to Netlify
+
+# The Netlify site `servous-container-builder` (a4ebac53-...) is not connected
+# to this repo via Netlify's native GitHub App, so pushing to main does NOT
+# trigger a build there automatically. This workflow closes that gap: every
+# push to main runs `netlify deploy --prod --build` from a GitHub-hosted
+# runner, which builds the Next.js app with the Netlify Next.js plugin and
+# uploads the artifact directly to the site.
+#
+# Required repo secrets (already set):
+#   NETLIFY_AUTH_TOKEN  — personal access token from app.netlify.com
+#   NETLIFY_SITE_ID     — a4ebac53-5df6-4b54-8867-9fc7abd8205d
+#
+# Required env vars baked into Netlify Site settings (NOT this workflow):
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   SUPABASE_SERVICE_ROLE_KEY
+# These come from the Netlify build environment, not GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Netlify (production, build via plugin)
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: npx netlify deploy --prod --build --site="$NETLIFY_SITE_ID"
