@@ -58,9 +58,8 @@ test("P1-24 submitted order appears in /orders with correct details", async ({
   // Fill to 100% and submit.
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-  await modal.clickApply();
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for volume to update.

@@ -206,9 +206,8 @@ test("P2-04 rapid double-click submit creates at most one order", async ({
 
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-  await modal.clickApply();
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for volume to update to ~100%.

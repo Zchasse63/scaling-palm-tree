@@ -65,7 +65,14 @@ test("P0-19 successful submit clears the draft (reload shows empty cart)", async
   await page.waitForTimeout(300);
 
   await page.locator("button", { hasText: "Optimize Fill" }).click();
-  await page.locator("button", { hasText: "Apply Suggestions" }).click({ timeout: 8_000 });
+  // The new modal has three Apply buttons (one per panel). Click the one in
+  // the Fill From Catalog panel — it always produces a 100% fill suggestion.
+  await page
+    .locator("section")
+    .filter({ hasText: "Fill From Catalog" })
+    .first()
+    .locator("button", { hasText: "Apply" })
+    .click({ timeout: 8_000 });
   await page.waitForTimeout(500);
   await page.locator("button", { hasText: "Submit Container Order" }).click();
 
@@ -132,7 +139,14 @@ test("P1-28 confirmation page shows submit-and-continue prompt for the other cat
   await page.waitForTimeout(300);
 
   await page.locator("button", { hasText: "Optimize Fill" }).click();
-  await page.locator("button", { hasText: "Apply Suggestions" }).click({ timeout: 8_000 });
+  // The new modal has three Apply buttons (one per panel). Click the one in
+  // the Fill From Catalog panel — it always produces a 100% fill suggestion.
+  await page
+    .locator("section")
+    .filter({ hasText: "Fill From Catalog" })
+    .first()
+    .locator("button", { hasText: "Apply" })
+    .click({ timeout: 8_000 });
   await page.waitForTimeout(500);
   await page.locator("button", { hasText: "Submit Container Order" }).click();
 

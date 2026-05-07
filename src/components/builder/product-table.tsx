@@ -40,7 +40,7 @@ export function ProductTable({ catalog, qtys, setQtys }: ProductTableProps) {
                   background: "var(--paper-2)",
                 }}
               >
-                <div className="t-eyebrow">Spec</div>
+                <div className="t-eyebrow">Item</div>
                 <div className="t-eyebrow" style={{ textAlign: "right" }}>Price</div>
                 <div className="t-eyebrow" style={{ textAlign: "right" }}>Cases</div>
                 <div className="t-eyebrow" style={{ textAlign: "right" }}>Subtotal</div>

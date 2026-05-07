@@ -120,7 +120,7 @@ export function OrderConfirmation({
               borderBottom: "1px solid var(--rule)",
             }}
           >
-            <div className="t-eyebrow">Spec</div>
+            <div className="t-eyebrow">Item</div>
             <div className="t-eyebrow" style={{ textAlign: "right" }}>Cases</div>
             <div className="t-eyebrow" style={{ textAlign: "right" }}>Unit</div>
             <div className="t-eyebrow" style={{ textAlign: "right" }}>Subtotal</div>

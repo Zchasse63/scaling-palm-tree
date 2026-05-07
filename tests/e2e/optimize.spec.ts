@@ -50,17 +50,11 @@ test("P1-18 fill_catalog mode fills to near 100%", async ({ authenticatedPage })
   await builder.clickOptimize();
   await modal.waitForOpen();
 
-  // Switch to fill_catalog mode.
-  await modal.selectFillCatalog();
-
-  // Wait for suggestions to be computed (Apply button enabled or suggestions visible).
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-
-  const count = await modal.suggestionCount();
+  // Apply the Fill From Catalog strategy.
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  const count = await modal.suggestionCountInPanel("Fill From Catalog");
   expect(count).toBeGreaterThan(0);
-
-  // Apply and wait for the volume to change.
-  await modal.clickApply();
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for the Ticker to update (90ms fade + React re-render).
@@ -88,21 +82,15 @@ test("P1-17 top_up mode adds to existing cart items", async ({ authenticatedPage
   expect(volBefore).toBeGreaterThan(0);
   expect(volBefore).toBeLessThan(100);
 
-  // Open Optimize — top_up should be the default mode when cart has items.
+  // Open Optimize — Top Up Cart should be enabled when cart has items.
   await builder.clickOptimize();
   await modal.waitForOpen();
 
-  // Verify top_up is selected (aria-selected="true").
-  const topUpSelected = await modal.tabTopUp.getAttribute("aria-selected");
-  expect(topUpSelected).toBe("true");
-
-  // Wait for suggestions to be computed.
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-
-  const count = await modal.suggestionCount();
+  // Verify Top Up Cart is enabled and apply it.
+  await expect(modal.applyButton("Top Up Cart")).not.toBeDisabled({ timeout: 5_000 });
+  const count = await modal.suggestionCountInPanel("Top Up Cart");
   expect(count).toBeGreaterThan(0);
-
-  await modal.clickApply();
+  await modal.applyTopUp();
   await modal.waitForClose();
 
   // Wait for the volume display to update past the starting value.
@@ -140,19 +128,16 @@ test("P1-19 complete_set mode runs without crash and shows expected content", as
   await builder.clickOptimize();
   await modal.waitForOpen();
 
-  // Switch to "Match items" (complete_set).
-  await modal.selectMatchItems();
+  // Match Items panel renders (no tabs anymore — three panels are stacked).
+  await expect(modal.panel("Match Items")).toBeVisible({ timeout: 5_000 });
 
-  // Wait for the modal content to settle — either Apply becomes enabled or empty state appears.
-  await expect(modal.modal.locator('[role="tab"][aria-selected="true"]')).toHaveText("Match items", { timeout: 5_000 });
-
-  // Verify it doesn't crash and shows either suggestions or an appropriate empty state.
+  // The modal must not have crashed; smoke-check for error strings.
   const bodyText = await modal.modal.textContent();
-  const hasExpectedContent =
+  const ok =
     (bodyText ?? "").length > 0 &&
     !((bodyText ?? "").includes("Application error")) &&
     !((bodyText ?? "").includes("Internal Server Error"));
-  expect(hasExpectedContent).toBe(true);
+  expect(ok).toBe(true);
 
   await modal.clickCancel();
   await modal.waitForClose();
@@ -181,9 +166,8 @@ test("P1-20 optimize then submit completes successfully", async ({
   // Optimize with fill_catalog.
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-  await modal.clickApply();
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for volume to update past starting value.
@@ -222,9 +206,8 @@ test("P1-21 applying optimize twice is idempotent", async ({ authenticatedPage }
   // First optimize application.
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-  await modal.clickApply();
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for volume to update.
@@ -242,19 +225,19 @@ test("P1-21 applying optimize twice is idempotent", async ({ authenticatedPage }
   // If button is still enabled (partial fill), open and verify no suggestions or no_change.
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
+  // Fill From Catalog panel must render.
+  await expect(modal.panel("Fill From Catalog")).toBeVisible({ timeout: 5_000 });
 
-  // Wait for the modal to settle.
-  await expect(modal.modal.locator('[role="tab"][aria-selected="true"]')).toHaveText("Fill from catalog", { timeout: 5_000 });
-
-  // Either Apply is disabled (no suggestions) or status indicates already full.
-  const isApplyDisabled = await modal.isApplyDisabled();
-  const statusText = await modal.getStatusText();
-
+  // After a recent fill, the Fill From Catalog panel's Apply should be either
+  // disabled OR the panel header status should indicate the cart is already
+  // at exact capacity.
+  const isApplyDisabled = await modal.isApplyDisabled("Fill From Catalog");
+  const panelText = (await modal.panel("Fill From Catalog").textContent()) ?? "";
   const acceptable =
     isApplyDisabled ||
-    statusText.toLowerCase().includes("no changes") ||
-    statusText.toLowerCase().includes("100.0%");
+    /no\s+suggestions/i.test(panelText) ||
+    /100\.0%/.test(panelText) ||
+    /already\s+at\s+capacity/i.test(panelText);
   expect(acceptable).toBe(true);
 
   await modal.clickCancel();

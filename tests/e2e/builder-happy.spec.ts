@@ -125,18 +125,17 @@ test("P0-05 + P0-06 fill to 100%, submit, confirm DB write, see on orders page",
   await expect(builder.summaryPanel.locator(".t-stat").first()).not.toHaveText("0.0", { timeout: 5_000 });
   const volBefore = await builder.getVolumePct();
 
-  // Use "Fill from catalog" optimize mode to reach 100%.
+  // Use "Fill From Catalog" strategy to reach 100%.
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
 
-  // Wait for Apply button to become enabled (suggestions computed by useMemo).
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
+  // Wait for Apply button on the Fill From Catalog panel to become enabled.
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
 
-  const count = await modal.suggestionCount();
+  const count = await modal.suggestionCountInPanel("Fill From Catalog");
   expect(count).toBeGreaterThan(0);
 
-  await modal.clickApply();
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for the Ticker to update — volume should jump to ~100%.
@@ -195,9 +194,8 @@ test("P2-05 build-another resets the cart to empty", async ({
 
   await builder.clickOptimize();
   await modal.waitForOpen();
-  await modal.selectFillCatalog();
-  await expect(modal.applyButton).not.toBeDisabled({ timeout: 5_000 });
-  await modal.clickApply();
+  await expect(modal.applyButton("Fill From Catalog")).not.toBeDisabled({ timeout: 5_000 });
+  await modal.applyFillCatalog();
   await modal.waitForClose();
 
   // Wait for volume to update.
