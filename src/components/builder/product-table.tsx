@@ -51,6 +51,7 @@ export function ProductTable({ catalog, qtys, setQtys }: ProductTableProps) {
                   sku={sku}
                   qty={qtys[sku.vendorProductId] ?? 0}
                   minCaseQty={catalog.minCaseQty}
+                  pricesPending={catalog.pricesPending}
                   onQty={(v) =>
                     setQtys((prev) => ({ ...prev, [sku.vendorProductId]: v }))
                   }

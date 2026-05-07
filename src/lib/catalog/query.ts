@@ -30,7 +30,7 @@ export async function fetchCustomerCatalogs(
   const { data: accessRows, error: accessErr } = await admin
     .from("customer_catalog_access")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select("vendor_id, container_type, terms_label, currency, display_name, slug" as any)
+    .select("vendor_id, container_type, terms_label, currency, display_name, slug, prices_pending" as any)
     .eq("customer_id", customerId)
     .eq("is_active", true);
   if (accessErr) throw new Error("catalog access lookup failed: " + accessErr.message);
@@ -71,6 +71,7 @@ export async function fetchCustomerCatalogs(
       currency: a.currency,
       skuCount: s.skuCount,
       categoryNames: Array.from(s.categoryNames),
+      pricesPending: a.prices_pending === true,
     };
   });
 }
@@ -85,10 +86,19 @@ export interface CatalogAccess {
   displayName: string;
   minCaseQty: number;
   minFillPct: number;
+  /**
+   * When true, the customer should not see live prices for this catalog.
+   * fn_catalog_for_customer zeroes cost + sell on every row; the UI replaces
+   * dollar amounts with "—" and disables submit. Used during pricing
+   * refreshes — the access stays open so the customer can browse SKUs, but
+   * orders are gated until the prices are reviewed and republished.
+   */
+  pricesPending: boolean;
+  pricesPendingReason: string | null;
 }
 
 const SELECT_ACCESS_FIELDS =
-  "vendor_id, container_type, terms_label, currency, display_name, slug, min_case_qty, min_fill_pct";
+  "vendor_id, container_type, terms_label, currency, display_name, slug, min_case_qty, min_fill_pct, prices_pending, prices_pending_reason";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToAccess(row: any): CatalogAccess {
@@ -101,6 +111,8 @@ function rowToAccess(row: any): CatalogAccess {
     displayName: row.display_name ?? "Servous Catalog",
     minCaseQty: row.min_case_qty ?? 100,
     minFillPct: Number(row.min_fill_pct ?? 100),
+    pricesPending: row.prices_pending === true,
+    pricesPendingReason: row.prices_pending_reason ?? null,
   };
 }
 
@@ -237,6 +249,8 @@ export async function fetchCatalogForVendor(
     currency: access.currency,
     minCaseQty: access.minCaseQty,
     minFillPct: access.minFillPct,
+    pricesPending: access.pricesPending,
+    pricesPendingReason: access.pricesPendingReason,
     categories,
     skuCount: rows.length,
   };

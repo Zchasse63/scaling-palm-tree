@@ -55,6 +55,13 @@ export interface VendorCatalog {
   minCaseQty: number;
   /** Minimum container volume fill required to submit. Default 100.0. */
   minFillPct: number;
+  /**
+   * When true, the catalog rows arrive with cost + sell zeroed by the server.
+   * The UI renders "—" instead of dollar amounts, shows a banner explaining
+   * why, and disables submit. Used for short-window pricing refreshes.
+   */
+  pricesPending: boolean;
+  pricesPendingReason: string | null;
   /** All categories that have at least one SKU. */
   categories: CatalogCategory[];
   /** Total SKU count, for header/breadcrumb labels. */
@@ -70,4 +77,6 @@ export interface CatalogSummary {
   currency: string;
   skuCount: number;
   categoryNames: string[];
+  /** Surface the pricing-refresh window on the catalog dashboard tile. */
+  pricesPending: boolean;
 }

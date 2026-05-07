@@ -65,6 +65,16 @@ export async function submitOrderAction(
       return { ok: false, error: "You do not have access to this catalog." };
     }
 
+    // Hard gate: this catalog is in a pricing-refresh window. The UI also
+    // disables submit, but we re-check here so a crafted POST cannot bypass.
+    if (access.pricesPending) {
+      return {
+        ok: false,
+        error:
+          "Pricing refresh in progress for this catalog. Submit will re-open once updated rates publish.",
+      };
+    }
+
     // Re-fetch catalog server-side to lock in real prices and verify totals.
     // Pass the customer's verified access info so container/terms + the
     // customer's effective margin come from THIS customer's row.

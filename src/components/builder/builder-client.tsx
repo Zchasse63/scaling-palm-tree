@@ -199,6 +199,56 @@ export function BuilderClient({
             </div>
           ) : null}
 
+          {catalog.pricesPending ? (
+            <div
+              role="status"
+              style={{
+                marginBottom: 14,
+                padding: "12px 16px",
+                background: "var(--paper-2)",
+                border: "1px solid var(--char)",
+                color: "var(--ink)",
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: 11,
+                letterSpacing: "0.06em",
+                lineHeight: 1.7,
+                display: "flex",
+                gap: 14,
+                alignItems: "flex-start",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  color: "var(--warm)",
+                  fontSize: 14,
+                  lineHeight: 1,
+                  marginTop: 1,
+                }}
+              >
+                +
+              </span>
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    marginBottom: 4,
+                  }}
+                >
+                  Pricing Pending
+                </div>
+                <div style={{ color: "var(--mid)", textTransform: "none", letterSpacing: 0 }}>
+                  {catalog.pricesPendingReason ??
+                    "Prices are being refreshed by your representative."}{" "}
+                  Browse the catalog while you wait — submit will re-open once
+                  the new rates publish.
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div
             className="flex"
             style={{ marginBottom: 14, alignItems: "baseline", justifyContent: "space-between" }}
@@ -254,6 +304,7 @@ export function BuilderClient({
           onSubmit={onSubmit}
           pending={submitting}
           errored={error}
+          pricesPending={catalog.pricesPending}
         />
       </main>
 

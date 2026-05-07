@@ -58,9 +58,12 @@ export function CatalogCard({ catalog, lastOrder }: CatalogCardProps) {
       <span className="regmark" style={{ position: "absolute", top: 8, right: 8 }}>+</span>
 
       <div className="flex flex-col" style={{ gap: 12 }}>
-        <div className="flex" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
           <div className="t-eyebrow">Catalog</div>
-          <Chip variant="warm">{termsBadge}</Chip>
+          <div className="flex" style={{ gap: 6 }}>
+            {catalog.pricesPending ? <Chip>Pricing pending</Chip> : null}
+            <Chip variant="warm">{termsBadge}</Chip>
+          </div>
         </div>
         <div className="t-h2" style={{ marginTop: 2, lineHeight: 1.2 }}>
           {catalog.displayName}

@@ -170,6 +170,7 @@ export function BuilderHeader({
                       <span className="t-body" style={{ fontWeight: 500 }}>
                         {o.displayName}
                       </span>
+                      {o.pricesPending ? <Chip>Pricing pending</Chip> : null}
                       {status.hasDraft ? (
                         <Chip variant="ink">
                           Draft · {status.draftCases} cs

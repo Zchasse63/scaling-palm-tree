@@ -18,6 +18,11 @@ interface SummaryPanelProps {
   onSubmit: () => void;
   pending: boolean;
   errored?: string | null;
+  /**
+   * When true, the catalog is in a pricing-refresh window. Submit is hard-
+   * blocked and the disabled reason explains it. Subtotals render as "—".
+   */
+  pricesPending?: boolean;
 }
 
 export function SummaryPanel({
@@ -28,6 +33,7 @@ export function SummaryPanel({
   onSubmit,
   pending,
   errored,
+  pricesPending = false,
 }: SummaryPanelProps) {
   const empty = totals.cases === 0;
   const meetsMinFill = totals.volPct >= minFillPct - 0.05;
@@ -37,12 +43,16 @@ export function SummaryPanel({
     totals.volPct <= 100 + 1e-3 &&
     totals.wtPct <= 100 + 1e-3 &&
     totals.belowMinLines === 0 &&
-    !pending;
+    !pending &&
+    !pricesPending;
   const canOptimize = totals.fillFraction > 0 && totals.volPct < 100;
   const pulseOptimize = totals.volPct >= 95 && totals.volPct < 100;
 
   let disabledReason: string | null = null;
-  if (!submittable && !empty) {
+  if (pricesPending && !empty) {
+    disabledReason =
+      "Pricing refresh in progress — submit is locked until updated rates publish.";
+  } else if (!submittable && !empty) {
     if (totals.belowMinLines > 0) {
       disabledReason = `${totals.belowMinLines} line item${
         totals.belowMinLines === 1 ? " is" : "s are"
@@ -168,19 +178,27 @@ export function SummaryPanel({
         <div className="flex" style={{ alignItems: "baseline", justifyContent: "space-between" }}>
           <div className="t-eyebrow">Subtotal</div>
           <div className="t-stat-md">
-            $<Ticker
-              value={totals.subtotal.toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            />
+            {pricesPending ? (
+              <span style={{ color: "var(--warm)" }}>—</span>
+            ) : (
+              <>
+                $<Ticker
+                  value={totals.subtotal.toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                />
+              </>
+            )}
           </div>
         </div>
         <div
           className="mono"
           style={{ fontSize: 10, color: "var(--mid)", marginTop: 6, lineHeight: 1.5 }}
         >
-          Pricing reflects {termsLabel.toLowerCase()}. Final invoice issued upon container confirmation.
+          {pricesPending
+            ? "Prices are being refreshed by your representative — check back shortly."
+            : `Pricing reflects ${termsLabel.toLowerCase()}. Final invoice issued upon container confirmation.`}
         </div>
       </div>
 

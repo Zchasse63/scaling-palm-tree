@@ -15,9 +15,14 @@ interface ProductRowProps {
   onQty: (n: number) => void;
   /** Catalog-wide minimum cases per line. */
   minCaseQty: number;
+  /**
+   * When true, the catalog is in a pricing-refresh window — prices are
+   * zeroed at the server. Render "—" instead of dollar amounts.
+   */
+  pricesPending?: boolean;
 }
 
-export function ProductRow({ sku, qty, onQty, minCaseQty }: ProductRowProps) {
+export function ProductRow({ sku, qty, onQty, minCaseQty, pricesPending }: ProductRowProps) {
   const dimsStr =
     sku.caseLengthIn !== null && sku.caseWidthIn !== null && sku.caseHeightIn !== null
       ? `${sku.caseLengthIn}″ × ${sku.caseWidthIn}″ × ${sku.caseHeightIn}″`
@@ -92,8 +97,14 @@ export function ProductRow({ sku, qty, onQty, minCaseQty }: ProductRowProps) {
         ) : null}
       </div>
       <div className="mono" style={{ textAlign: "right", fontSize: 13 }}>
-        {fmtMoneyPos(sku.sellPricePerCase)}
-        <span style={{ color: "var(--mid)" }}>/case</span>
+        {pricesPending ? (
+          <span style={{ color: "var(--warm)" }}>—</span>
+        ) : (
+          <>
+            {fmtMoneyPos(sku.sellPricePerCase)}
+            <span style={{ color: "var(--mid)" }}>/case</span>
+          </>
+        )}
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <div className="flex flex-col" style={{ alignItems: "flex-end", gap: 4 }}>
@@ -120,10 +131,10 @@ export function ProductRow({ sku, qty, onQty, minCaseQty }: ProductRowProps) {
           textAlign: "right",
           fontSize: 14,
           fontWeight: 500,
-          color: qty > 0 ? "var(--ink)" : "var(--warm)",
+          color: qty > 0 && !pricesPending ? "var(--ink)" : "var(--warm)",
         }}
       >
-        {fmtMoneyPos(subtotal)}
+        {pricesPending ? "—" : fmtMoneyPos(subtotal)}
       </div>
     </div>
   );
