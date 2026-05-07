@@ -210,6 +210,7 @@ export async function fetchCatalogForVendor(
       dimsVerified: r.dims_verified,
       cbmPerCase: r.cbm_per_case !== null ? Number(r.cbm_per_case) : null,
       packMultiple: r.pack_multiple,
+      minCaseQtyOverride: r.min_case_qty_override ?? null,
       prePalletized: r.pre_palletized,
       physicalSpecsVerified: r.physical_specs_verified,
       costPerCase: Number(r.cost_per_case),

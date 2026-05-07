@@ -63,10 +63,11 @@ export function computeTotals(catalog: VendorCatalog, qtys: QtyMap): BuilderTota
       if (sku.casesPerPallet && sku.casesPerPallet > 0) {
         palletEq += q / sku.casesPerPallet;
       }
-      // Line-minimum check: max(packMultiple, minCaseQty), rounded up.
+      // Line-minimum check: max(packMultiple, override ?? minCaseQty),
+      // rounded up. Per-SKU override beats the catalog-wide floor when set.
       const pack = sku.packMultiple && sku.packMultiple > 0 ? sku.packMultiple : 1;
-      const effMin =
-        Math.ceil(Math.max(catalog.minCaseQty, pack) / pack) * pack;
+      const moqFloor = sku.minCaseQtyOverride ?? catalog.minCaseQty;
+      const effMin = Math.ceil(Math.max(moqFloor, pack) / pack) * pack;
       if (q < effMin) belowMinLines += 1;
     }
   }

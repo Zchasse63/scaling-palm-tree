@@ -33,9 +33,12 @@ export function ProductRow({ sku, qty, onQty, minCaseQty }: ProductRowProps) {
       ? `${sku.caseWeightKg.toFixed(sku.caseWeightKg < 10 ? 2 : 1)} kg/case`
       : null;
 
-  // Effective minimum = max(pack_multiple, catalog min).
+  // Effective minimum = max(pack_multiple, per-SKU override ?? catalog min).
+  // The per-SKU override (e.g. China-packed foil rolls = 50) beats the
+  // catalog-wide floor when present.
   const pack = sku.packMultiple && sku.packMultiple > 0 ? sku.packMultiple : 1;
-  const effectiveMin = Math.ceil(Math.max(minCaseQty, pack) / pack) * pack;
+  const moqFloor = sku.minCaseQtyOverride ?? minCaseQty;
+  const effectiveMin = Math.ceil(Math.max(moqFloor, pack) / pack) * pack;
   const belowMin = qty > 0 && qty < effectiveMin;
 
   return (
@@ -98,7 +101,7 @@ export function ProductRow({ sku, qty, onQty, minCaseQty }: ProductRowProps) {
             value={qty}
             onChange={onQty}
             packMultiple={sku.packMultiple}
-            minCaseQty={minCaseQty}
+            minCaseQty={moqFloor}
             ariaLabel={"Quantity for " + sku.productName}
           />
           {showPallet ? (

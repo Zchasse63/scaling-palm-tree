@@ -60,9 +60,6 @@ export function SignInForm() {
         <Button kind="primary" style={{ width: "100%" }} type="submit" disabled={isPending}>
           {isPending ? "Sending…" : "Send magic link"}
         </Button>
-        <div className="t-cap" style={{ marginTop: 18, color: "var(--mid)" }}>
-          Need an account? Contact your Servous representative.
-        </div>
       </div>
     </form>
   );

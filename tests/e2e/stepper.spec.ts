@@ -1,13 +1,15 @@
 /**
  * Stepper edge-case tests — P1 and P2
  *
- * The foil-aluminum catalog has foil SKUs with packMultiple=200.
- * Other SKUs have packMultiple=null (step=1) and minCaseQty=100.
+ * The foil-aluminum catalog now reflects China-factory packing for rolls:
+ *   foil rolls: packMultiple=50, minCaseQtyOverride=50, effectiveMin=50
+ *     (1 master case = 4 inner rolls; 50 cases = 1 pallet = factory MOQ)
+ *   other SKUs: packMultiple=null (step=1) and minCaseQty=100
  *
  * Covers:
- *   P1-05  Type 50 in foil-roll (packMultiple=200) → blur → snaps to 0
- *   P1-06  Type 100 in foil-roll → blur → snaps to 200 (pack-multiple snap fires before below-min)
- *   P1-07  Type 101 in foil-roll → blur → snaps to 200
+ *   P1-05  Type 24 in foil-roll (packMultiple=50) → blur → snaps to 0
+ *   P1-06  Type 75 in foil-roll → blur → snaps to 100 (pack-multiple snap fires before below-min)
+ *   P1-07  Type 76 in foil-roll → blur → snaps to 100
  *   P1-08  Type "abc" → blur → 0
  *   P1-09  Type "-50" → blur → 0
  *   P1-10  Stepper at 0 → minus button disabled
@@ -23,7 +25,7 @@ import { BuilderPage } from "../pages/BuilderPage";
 
 // Product name substring to locate foil roll rows.
 // Actual product names: "Aluminum Foil — 18\"x500' Heavy Duty", "Aluminum Foil — 18\"x500' Standard"
-// Both have packMultiple=200, effectiveMin=200.
+// Both: packMultiple=50, minCaseQtyOverride=50 → effectiveMin=50.
 const FOIL_ROLL_NAME = "Aluminum Foil";
 
 // Non-foil SKU with packMultiple=null and minCaseQty=100.
@@ -108,24 +110,25 @@ test("P1-09 typing negative value: cart stays empty, submit stays blocked", asyn
 });
 
 // ---------------------------------------------------------------------------
-// P1-05 — Foil roll: type 50 → blur → functional state is 0 (empty cart)
+// P1-05 — Foil roll: type 24 → blur → functional state is 0 (empty cart)
 //
-// packMultiple=200: round(50/200)*200 = 0. onChange(0) called. Parent was already 0.
+// packMultiple=50: round(24/50)*50 = round(0.48)*50 = 0*50 = 0.
+// onChange(0) called. Parent was already 0.
 //
 // BUG-002: React bails out on the state update (0→0). useEffect doesn't fire.
-// setLocal("0") never called. Input display stays "50". Cart state is correctly 0
-// (volume=0%, submit disabled). Visual regression but not a functional defect.
+// The Stepper guards against this by always calling setLocal(String(final))
+// in onBlur (see stepper.tsx) so the input display does reset, but the
+// functional assertion is still: cart empty, submit blocked.
 // ---------------------------------------------------------------------------
-test("P1-05 foil roll stepper: type 50 → cart is empty, submit blocked (BUG-002: display stays stale)", async ({ authenticatedPage }) => {
+test("P1-05 foil roll stepper: type 24 → cart is empty, submit blocked", async ({ authenticatedPage }) => {
   const page = authenticatedPage;
   const builder = new BuilderPage(page);
   await builder.catalogTitle.waitFor({ timeout: 10_000 });
 
   const input = builder.qtyInput(FOIL_ROLL_NAME).first();
-  await typeAndBlur(input, "50");
+  await typeAndBlur(input, "24");
 
   // Functional invariant: volume is 0 and submit is disabled (snap to 0 succeeded).
-  // BUG-002: Input display may still show "50" (stale local state — React bailout).
   const vol = await builder.getVolumePct();
   expect(vol).toBe(0);
 
@@ -134,44 +137,42 @@ test("P1-05 foil roll stepper: type 50 → cart is empty, submit blocked (BUG-00
 });
 
 // ---------------------------------------------------------------------------
-// P1-06 — Foil roll: type 100 → blur → snaps to 200 (pack-multiple takes precedence)
+// P1-06 — Foil roll: type 75 → blur → snaps to 100 (pack-multiple takes precedence)
 //
-// packMultiple=200: round(100/200)*200 = round(0.5)*200 = 1*200 = 200.
-// The pack-multiple snap fires BEFORE the below-min check, so 100 → 200, not 0.
-// The below-min check only runs if v is still < effectiveMin AFTER pack snap.
-// Since 200 == effectiveMin, the below-min condition is false → onChange(200).
-// No BUG-002 here: parent state changes from 0→200, so React re-renders and
-// useEffect fires setLocal("200").
+// packMultiple=50: round(75/50)*50 = round(1.5)*50 = 2*50 = 100.
+// The pack-multiple snap fires BEFORE the below-min check, so 75 → 100, not 50.
+// (effectiveMin=50, so 100 > effectiveMin and the below-min branch never fires.)
+// Parent state changes from 0→100 — useEffect fires setLocal("100").
 // ---------------------------------------------------------------------------
-test("P1-06 foil roll stepper: type 100 snaps to 200 (pack-multiple snap fires first)", async ({ authenticatedPage }) => {
+test("P1-06 foil roll stepper: type 75 snaps to 100 (pack-multiple snap fires first)", async ({ authenticatedPage }) => {
   const page = authenticatedPage;
   const builder = new BuilderPage(page);
   await builder.catalogTitle.waitFor({ timeout: 10_000 });
 
   const input = builder.qtyInput(FOIL_ROLL_NAME).first();
-  await typeAndBlur(input, "100");
+  await typeAndBlur(input, "75");
 
-  // Pack-multiple snap: Math.round(100/200)*200 = 1*200 = 200.
-  await expect(input).toHaveValue("200", { timeout: 5_000 });
+  // Pack-multiple snap: Math.round(75/50)*50 = 2*50 = 100.
+  await expect(input).toHaveValue("100", { timeout: 5_000 });
   const val = await input.inputValue();
-  expect(parseInt(val || "0", 10)).toBe(200);
+  expect(parseInt(val || "0", 10)).toBe(100);
 });
 
 // ---------------------------------------------------------------------------
-// P1-07 — Foil roll: type 101 → blur → snaps to 200
+// P1-07 — Foil roll: type 76 → blur → snaps to 100
 // ---------------------------------------------------------------------------
-test("P1-07 foil roll stepper: type 101 snaps to 200 on blur", async ({ authenticatedPage }) => {
+test("P1-07 foil roll stepper: type 76 snaps to 100 on blur", async ({ authenticatedPage }) => {
   const page = authenticatedPage;
   const builder = new BuilderPage(page);
   await builder.catalogTitle.waitFor({ timeout: 10_000 });
 
   const input = builder.qtyInput(FOIL_ROLL_NAME).first();
-  await typeAndBlur(input, "101");
+  await typeAndBlur(input, "76");
 
-  // Pack-multiple snap: round(101/200)*200 = round(0.505)*200 = 1*200 = 200.
-  await expect(input).toHaveValue("200", { timeout: 5_000 });
+  // Pack-multiple snap: round(76/50)*50 = round(1.52)*50 = 2*50 = 100.
+  await expect(input).toHaveValue("100", { timeout: 5_000 });
   const val = await input.inputValue();
-  expect(parseInt(val || "0", 10)).toBe(200);
+  expect(parseInt(val || "0", 10)).toBe(100);
 });
 
 // ---------------------------------------------------------------------------

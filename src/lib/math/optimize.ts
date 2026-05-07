@@ -48,7 +48,10 @@ interface Candidate {
   sku: CatalogSku;
   /** Effective minimum step (max of packMultiple and 1). */
   step: number;
-  /** Floor for first-time addition: max(packMultiple, minCaseQty). */
+  /**
+   * Floor for first-time addition: max(packMultiple, override ?? minCaseQty).
+   * The per-SKU minCaseQtyOverride beats the catalog-wide floor when present.
+   */
   firstAddMin: number;
   stepFill: number;
   stepKg: number;
@@ -62,8 +65,9 @@ function buildCandidates(catalog: VendorCatalog): Candidate[] {
     for (const sku of cat.skus) {
       if (!sku.casesPer40hc || sku.casesPer40hc <= 0) continue;
       const step = sku.packMultiple && sku.packMultiple > 0 ? sku.packMultiple : 1;
+      const moqFloor = sku.minCaseQtyOverride ?? catalog.minCaseQty;
       const firstAddMin =
-        Math.ceil(Math.max(catalog.minCaseQty, step) / step) * step;
+        Math.ceil(Math.max(moqFloor, step) / step) * step;
       const stepFill = step / sku.casesPer40hc;
       const weightUnknown = sku.caseWeightKg === null || sku.caseWeightKg === undefined;
       const stepKg = weightUnknown ? 0 : (sku.caseWeightKg as number) * step;

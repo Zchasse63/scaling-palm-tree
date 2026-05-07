@@ -21,6 +21,13 @@ export interface CatalogSku {
   cbmPerCase: number | null;
   /** Stepper step / order increment (e.g., foil rolls = 200). null = +1. */
   packMultiple: number | null;
+  /**
+   * Per-SKU minimum case qty floor. Overrides the catalog-wide `minCaseQty`
+   * when present. Used for SKUs whose factory MOQ differs from the catalog
+   * default — e.g., China-packed foil rolls ship in 50-case pallets so the
+   * floor is 50, not the catalog's 100.
+   */
+  minCaseQtyOverride: number | null;
   prePalletized: boolean;
   physicalSpecsVerified: boolean;
   costPerCase: number;
