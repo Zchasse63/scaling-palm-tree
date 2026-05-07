@@ -16,6 +16,8 @@ import {
   verifyCustomerCatalogAccess,
 } from "@/lib/catalog/query";
 import { computeTotals, type QtyMap } from "@/lib/math/fill";
+import { sendOrderConfirmation } from "@/lib/email/order-confirmation";
+import { getContainerSpec } from "@/lib/containers";
 
 export interface SubmitOrderInput {
   vendorId: string;
@@ -234,6 +236,49 @@ export async function submitOrderAction(
       .eq("customer_id", session.customerId)
       .eq("vendor_id", input.vendorId)
       .then(() => null, () => null);
+
+    // Send confirmation emails to the customer and to Zach. Best-effort:
+    // failures log a warning but never roll back the order or block the
+    // success response. If RESEND_API_KEY isn't configured, the email
+    // module returns ok=false and the caller logs that fact.
+    try {
+      const containerSpec = getContainerSpec(catalog.containerCode);
+      await sendOrderConfirmation({
+        orderNumber: orderRow.order_number ?? orderNumber,
+        orderId: orderRow.id,
+        customerName: session.customerName,
+        customerEmail: session.email,
+        catalogDisplayName: catalog.displayName,
+        containerLabel: containerSpec.label,
+        termsLabel: catalog.termsLabel,
+        currency: catalog.currency,
+        submittedAt: new Date().toISOString(),
+        lines: lines.map((l) => {
+          const sku = skuByVpId.get(l.vendor_product_id);
+          return {
+            sku: l.sku,
+            description: l.description,
+            packDisplay: l.pack_size,
+            qtyCases: l.qty_cases,
+            sellPricePerCase: l.sell_price_per_case,
+            piecesPerCase: sku?.piecesPerCase ?? null,
+          };
+        }),
+        totals: {
+          subtotal: totals.subtotal,
+          cases: totals.cases,
+          palletEq: totals.palletEq,
+          weightKg: totals.kg,
+          volPct: totals.volPct,
+        },
+      });
+    } catch (e) {
+      // Never let an email-send error mask a successful order. Log only.
+      console.warn(
+        "[submit-order] sendOrderConfirmation threw: " +
+          (e instanceof Error ? e.message : "unknown"),
+      );
+    }
 
     return {
       ok: true,
