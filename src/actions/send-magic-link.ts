@@ -41,9 +41,22 @@ export async function sendMagicLinkAction(
   });
 
   if (error) {
-    // Supabase still treats unknown emails as success when shouldCreateUser=false,
-    // so reaching here means a hard error (rate limit, misconfig, etc.).
-    return { ok: false, error: error.message };
+    // "Signups not allowed for otp" is what Supabase returns when
+    // shouldCreateUser=false and the email is not in auth.users. Showing this
+    // to the user would leak which emails are/aren't provisioned (an
+    // enumeration vector). Treat it as silent success — the friendly
+    // "check your inbox" UX is correct: provisioned users get an email,
+    // unprovisioned users get nothing. Both see the same screen.
+    const msg = (error.message || "").toLowerCase();
+    const isUnknownEmail =
+      msg.includes("signups not allowed") ||
+      msg.includes("user not found") ||
+      msg.includes("not allowed for this instance");
+    if (isUnknownEmail) {
+      return { ok: true, email };
+    }
+    // Real errors (rate limit, misconfig, network) — surface with a generic message.
+    return { ok: false, error: "Could not send magic link. Try again in a moment." };
   }
 
   return { ok: true, email };
