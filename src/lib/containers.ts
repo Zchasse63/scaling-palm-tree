@@ -3,11 +3,11 @@
 //
 // `cbm` is the **practical usable load volume**, not the geometric interior.
 // A 40HC has ~76 m³ of geometric interior (12.03 × 2.35 × 2.69 m) but only
-// ~67 m³ actually loads with floor-stacked cartons because of packing
+// ~69 m³ actually loads with floor-stacked cartons because of packing
 // inefficiency (cartons don't perfectly tile, top headroom partially wasted,
 // dunnage, etc.). The manufacturer's `cases_per_40hc` is empirically tied
 // to this usable figure — fitting "100% of cases_per_40hc" puts you at
-// ~67 m³ of real loaded volume, not 76.
+// ~69 m³ of real loaded volume, not 76.
 //
 // `weight_max_kg` is the realistic commercial payload for **US road delivery**.
 // The binding constraint is the 80,000-lb federal GVW limit (NOT the container's
@@ -29,9 +29,9 @@ export interface ContainerSpec {
 }
 
 export const CONTAINERS: Record<ContainerCode, ContainerSpec> = {
-  // 40HC: 76 m³ geometric, ~67 m³ usable for floor-load. Cases/40HC is empirical
+  // 40HC: 76 m³ geometric, ~69 m³ usable for floor-load. Cases/40HC is empirical
   // against the usable figure.
-  "40HC":  { code: "40HC",  label: "40' High Cube", cbm: 67.0, nominalCbm: 76.0, weight_max_kg: 20000 },
+  "40HC":  { code: "40HC",  label: "40' High Cube", cbm: 69.0, nominalCbm: 76.0, weight_max_kg: 20000 },
   // 40STD: 67 m³ geometric, ~58 m³ usable.
   "40STD": { code: "40STD", label: "40' Standard",  cbm: 58.0, nominalCbm: 67.0, weight_max_kg: 20000 },
   // 20STD: 33 m³ geometric, ~28 m³ usable.

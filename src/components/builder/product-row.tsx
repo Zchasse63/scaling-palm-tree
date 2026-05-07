@@ -38,6 +38,20 @@ export function ProductRow({ sku, qty, onQty, minCaseQty, pricesPending }: Produ
       ? `${sku.caseWeightKg.toFixed(sku.caseWeightKg < 10 ? 2 : 1)} kg/case`
       : null;
 
+  // Foil rolls (and similar master-case SKUs) ship multiple rolls in one
+  // master case to prevent damage in transit, but the industry-standard
+  // mental model is per-roll pricing. When a SKU is a roll, surface the
+  // per-roll equivalent right under the per-case price so smaller
+  // distributors who haven't seen master-case packaging before can read it.
+  const isRoll =
+    sku.vendorSku.startsWith("RL") || /\broll\b/i.test(sku.productName);
+  const piecesInCase = sku.piecesPerCase ?? 1;
+  const showPerRoll = isRoll && piecesInCase > 1;
+  const perRollPrice = showPerRoll
+    ? sku.sellPricePerCase / piecesInCase
+    : 0;
+  const piecesUnitLabel = isRoll ? "rolls" : "pcs";
+
   // Effective minimum = max(pack_multiple, per-SKU override ?? catalog min).
   // The per-SKU override (e.g. China-packed foil rolls = 50) beats the
   // catalog-wide floor when present.
@@ -80,7 +94,9 @@ export function ProductRow({ sku, qty, onQty, minCaseQty, pricesPending }: Produ
             </>
           ) : (
             <>
-              {sku.piecesPerCase ?? 0} pcs/case
+              {showPerRoll
+                ? `Master case · ${piecesInCase} ${piecesUnitLabel}/case`
+                : `${piecesInCase} ${piecesUnitLabel}/case`}
               {dimsStr ? <> · Carton {dimsStr}</> : null}
               {wtKgStr ? <> · {wtKgStr}</> : null}
             </>
@@ -96,13 +112,30 @@ export function ProductRow({ sku, qty, onQty, minCaseQty, pricesPending }: Produ
           </div>
         ) : null}
       </div>
-      <div className="mono" style={{ textAlign: "right", fontSize: 13 }}>
+      <div
+        className="mono"
+        style={{
+          textAlign: "right",
+          fontSize: 13,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 2,
+        }}
+      >
         {pricesPending ? (
           <span style={{ color: "var(--warm)" }}>—</span>
         ) : (
           <>
-            {fmtMoneyPos(sku.sellPricePerCase)}
-            <span style={{ color: "var(--mid)" }}>/case</span>
+            <span>
+              {fmtMoneyPos(sku.sellPricePerCase)}
+              <span style={{ color: "var(--mid)" }}>/case</span>
+            </span>
+            {showPerRoll ? (
+              <span style={{ fontSize: 11, color: "var(--mid)" }}>
+                {fmtMoneyPos(perRollPrice)}/roll
+              </span>
+            ) : null}
           </>
         )}
       </div>
@@ -121,6 +154,10 @@ export function ProductRow({ sku, qty, onQty, minCaseQty, pricesPending }: Produ
               {sku.casesPerPallet && qty % sku.casesPerPallet
                 ? ` · ${qty % sku.casesPerPallet} cases`
                 : ""}
+            </div>
+          ) : showPerRoll && qty > 0 ? (
+            <div className="mono" style={{ fontSize: 10, color: "var(--mid)" }}>
+              {qty * piecesInCase} rolls total
             </div>
           ) : null}
         </div>
