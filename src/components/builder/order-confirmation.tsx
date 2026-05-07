@@ -8,8 +8,9 @@ import Link from "next/link";
 import { SectionBar } from "@/components/ui/section-bar";
 import { Button } from "@/components/ui/button";
 import { fmtInt, fmtMoneyPos, fmt1 } from "@/lib/math/fmt";
-import type { VendorCatalog } from "@/lib/catalog/types";
+import type { CatalogSummary, VendorCatalog } from "@/lib/catalog/types";
 import type { BuilderTotals, QtyMap } from "@/lib/math/fill";
+import type { CatalogStatusByVendorId } from "@/lib/catalog/status";
 
 interface OrderConfirmationProps {
   catalog: VendorCatalog;
@@ -17,6 +18,44 @@ interface OrderConfirmationProps {
   qtys: QtyMap;
   orderNumber: string;
   onBack: () => void;
+  /** All catalogs the customer can build, including the just-submitted one. */
+  otherCatalogs?: CatalogSummary[];
+  /** Status badges per OTHER catalog — drives the submit-and-continue choice. */
+  otherCatalogStatus?: CatalogStatusByVendorId;
+}
+
+/**
+ * Pick the most likely "next" catalog to build:
+ *   1. A catalog with an active draft (resume that)
+ *   2. The catalog with the OLDEST last-order (most overdue)
+ *   3. Any catalog with no order history yet
+ *   4. None — return null and skip the prompt
+ */
+function pickNextCatalog(
+  currentVendorId: string,
+  others: CatalogSummary[],
+  status: CatalogStatusByVendorId,
+): { catalog: CatalogSummary; reason: "draft" | "overdue" | "untouched" } | null {
+  const candidates = others.filter((c) => c.vendorId !== currentVendorId);
+  if (candidates.length === 0) return null;
+
+  const withDraft = candidates.find((c) => status[c.vendorId]?.hasDraft);
+  if (withDraft) return { catalog: withDraft, reason: "draft" };
+
+  const untouched = candidates.find((c) => !status[c.vendorId]?.lastOrderAt);
+  if (untouched) return { catalog: untouched, reason: "untouched" };
+
+  // All candidates have an order history — pick the oldest.
+  let oldest: CatalogSummary | null = null;
+  let oldestTime = Infinity;
+  for (const c of candidates) {
+    const t = new Date(status[c.vendorId]?.lastOrderAt ?? 0).getTime();
+    if (t < oldestTime) {
+      oldestTime = t;
+      oldest = c;
+    }
+  }
+  return oldest ? { catalog: oldest, reason: "overdue" } : null;
 }
 
 export function OrderConfirmation({
@@ -25,7 +64,17 @@ export function OrderConfirmation({
   qtys,
   orderNumber,
   onBack,
+  otherCatalogs = [],
+  otherCatalogStatus = {},
 }: OrderConfirmationProps) {
+  const next = pickNextCatalog(catalog.vendorId, otherCatalogs, otherCatalogStatus);
+  const nextLabel = next
+    ? next.reason === "draft"
+      ? "Resume your "
+      : next.reason === "untouched"
+        ? "Try a "
+        : "Build a "
+    : null;
   const lines = catalog.categories
     .flatMap((cat) =>
       cat.skus.map((sku) => ({ sku, q: qtys[sku.vendorProductId] ?? 0 })),
@@ -102,9 +151,21 @@ export function OrderConfirmation({
           Your Servous representative will confirm the shipping window within 1 business day.
         </div>
       </div>
-      <div className="flex" style={{ gap: 12, marginTop: 24 }}>
-        <Button kind="primary" onClick={onBack}>
-          Build Another Container
+      <div className="flex" style={{ gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+        {next ? (
+          <Link
+            href={{ pathname: "/", query: { c: next.catalog.slug } }}
+            style={{ textDecoration: "none" }}
+          >
+            <Button kind="primary">
+              {nextLabel}
+              {next.catalog.displayName}
+              {" "}→
+            </Button>
+          </Link>
+        ) : null}
+        <Button kind={next ? "secondary" : "primary"} onClick={onBack}>
+          Build Another {catalog.displayName}
         </Button>
         <Link href="/orders" style={{ textDecoration: "none" }}>
           <Button kind="secondary">View Past Orders</Button>

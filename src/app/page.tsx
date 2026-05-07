@@ -20,6 +20,8 @@ import {
   resolveCustomerCatalogAccess,
 } from "@/lib/catalog/query";
 import { fetchLastOrderPerCatalog } from "@/lib/orders/query";
+import { fetchDraftForVendor, fetchAllDraftsForCustomer } from "@/lib/drafts/query";
+import { pruneStaleSkus } from "@/lib/math/fill";
 import { BuilderClient } from "@/components/builder/builder-client";
 import { CatalogsView } from "@/components/catalogs/catalogs-view";
 import { NoAccessView } from "@/components/catalogs/no-access-view";
@@ -77,7 +79,12 @@ export default async function HomePage({ searchParams }: HomeProps) {
     );
   }
 
-  const catalog = await fetchCatalogForVendor(access.vendorId, access);
+  const [catalog, draft, lastOrderBySlug, draftsByVendor] = await Promise.all([
+    fetchCatalogForVendor(session.customerId, access.vendorId, access),
+    fetchDraftForVendor(session.customerId, access.vendorId),
+    fetchLastOrderPerCatalog(session.customerId),
+    fetchAllDraftsForCustomer(session.customerId),
+  ]);
   if (!catalog) {
     return (
       <NoAccessView
@@ -87,11 +94,45 @@ export default async function HomePage({ searchParams }: HomeProps) {
     );
   }
 
+  // Hydrate the draft against the live catalog. Stale SKUs (deactivated since
+  // the draft was last saved) are silently dropped; if any pruning happened we
+  // surface a banner so the customer knows the cart was edited on their behalf.
+  let initialQtys = draft?.qtyMap ?? {};
+  let hadStaleSkus = false;
+  if (draft) {
+    const before = Object.keys(draft.qtyMap).length;
+    initialQtys = pruneStaleSkus(catalog, draft.qtyMap);
+    hadStaleSkus = Object.keys(initialQtys).length !== before;
+  }
+
+  // Build status maps used by the header dropdown badges and the
+  // submit-and-continue suggestion. Both are scoped to OTHER catalogs (the
+  // current one is implicit). Serialize maps as plain objects for client.
+  const statusByVendorId: Record<
+    string,
+    { lastOrderAt?: string; lastOrderTotal?: number; hasDraft?: boolean; draftCases?: number }
+  > = {};
+  for (const c of allCatalogs) {
+    if (c.vendorId === access.vendorId) continue;
+    const lastOrder = lastOrderBySlug.get(c.slug);
+    const draftRow = draftsByVendor.get(c.vendorId);
+    statusByVendorId[c.vendorId] = {
+      lastOrderAt: lastOrder?.quotedAt,
+      lastOrderTotal: lastOrder?.total,
+      hasDraft: !!draftRow && draftRow.caseCount > 0,
+      draftCases: draftRow?.caseCount,
+    };
+  }
+
   return (
     <BuilderClient
       catalog={catalog}
       customerName={session.customerName}
       otherCatalogs={allCatalogs}
+      otherCatalogStatus={statusByVendorId}
+      initialQtys={initialQtys}
+      draftHadStaleSkus={hadStaleSkus}
+      draftUpdatedAt={draft?.updatedAt ?? null}
     />
   );
 }

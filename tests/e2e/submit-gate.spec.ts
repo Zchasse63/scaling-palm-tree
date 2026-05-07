@@ -136,19 +136,23 @@ test("P1-01 adding one item shows submit blocked due to under-fill", async ({ au
   const builder = new BuilderPage(page);
   await builder.catalogTitle.waitFor({ timeout: 10_000 });
 
-  // Fetch the first SKU's cases_per_40hc via admin client to calculate expected fill.
+  // Fetch the first SKU's cases_per_40hc via admin RPC to calculate expected fill.
+  // catalog_for_customer is a function now (since Phase B's pricing migration),
+  // not a view — so the call goes through .rpc().
   const admin = adminSupabase();
+  const TEST_CUSTOMER_ID = "68f5af45-d9b2-4f74-83c0-3275df0d6fa1";
   const WHITESTONE_VENDOR_ID = "2c1c07d7-4d90-4b9d-b952-796f2c91285d";
-  const { data: skuRows } = await admin
-    .from("catalog_for_customer")
-    .select("vendor_product_id, cases_per_40hc")
-    .eq("vendor_id", WHITESTONE_VENDOR_ID)
-    .limit(1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: skuRows } = await (admin as any).rpc("fn_catalog_for_customer", {
+    p_customer_id: TEST_CUSTOMER_ID,
+    p_vendor_id: WHITESTONE_VENDOR_ID,
+  });
 
   expect(skuRows).not.toBeNull();
-  expect(skuRows!.length).toBeGreaterThan(0);
+  expect((skuRows as Array<unknown>).length).toBeGreaterThan(0);
 
-  const sku = skuRows![0];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sku = (skuRows as Array<any>)[0];
   const underfillPct = (100 / sku.cases_per_40hc) * 100;
   expect(underfillPct).toBeLessThan(100);
 

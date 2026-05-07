@@ -66,9 +66,9 @@ export async function submitOrderAction(
     }
 
     // Re-fetch catalog server-side to lock in real prices and verify totals.
-    // Pass the customer's verified access info so container/terms come from
-    // THIS customer's row, not an arbitrary one.
-    const catalog = await fetchCatalogForVendor(input.vendorId, access);
+    // Pass the customer's verified access info so container/terms + the
+    // customer's effective margin come from THIS customer's row.
+    const catalog = await fetchCatalogForVendor(session.customerId, input.vendorId, access);
     if (!catalog) {
       return { ok: false, error: "Catalog could not be loaded." };
     }
@@ -212,6 +212,18 @@ export async function submitOrderAction(
       await admin.from("customer_orders").delete().eq("id", orderRow.id);
       return { ok: false, error: "Failed to write order lines: " + linesErr.message };
     }
+
+    // Successful submit — discard the draft so reload gives a fresh cart.
+    // Best-effort: a failure here doesn't roll back the order; worst case the
+    // customer sees their just-submitted cart still in the builder on reload,
+    // which is mildly confusing but not unsafe.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin as any)
+      .from("draft_orders")
+      .delete()
+      .eq("customer_id", session.customerId)
+      .eq("vendor_id", input.vendorId)
+      .then(() => null, () => null);
 
     return {
       ok: true,

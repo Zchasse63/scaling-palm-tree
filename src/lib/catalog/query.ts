@@ -38,22 +38,26 @@ export async function fetchCustomerCatalogs(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = accessRows as Array<any>;
-  const vendorIds = rows.map((r) => r.vendor_id);
 
-  // Step 2: pull catalog summary stats from the view in one query.
-  const { data: catRows, error: catErr } = await admin
-    .from("catalog_for_customer")
-    .select("vendor_id, category_name")
-    .in("vendor_id", vendorIds);
-  if (catErr) throw new Error("catalog summary fetch failed: " + catErr.message);
-
-  // Group SKU counts and category names by vendor.
+  // Step 2: per-vendor SKU + category stats via the function (one call per
+  // vendor; typically <8 catalogs per customer so this stays cheap). The
+  // function applies layered margin resolution; we ignore prices here and
+  // only use it for the row+category grouping.
   const stats = new Map<string, { skuCount: number; categoryNames: Set<string> }>();
-  for (const r of catRows ?? []) {
-    const s = stats.get(r.vendor_id) ?? { skuCount: 0, categoryNames: new Set() };
-    s.skuCount += 1;
-    if (r.category_name) s.categoryNames.add(r.category_name);
-    stats.set(r.vendor_id, s);
+  for (const a of rows) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: catRows, error: catErr } = await (admin as any).rpc(
+      "fn_catalog_for_customer",
+      { p_customer_id: customerId, p_vendor_id: a.vendor_id },
+    );
+    if (catErr) throw new Error("catalog summary fetch failed: " + catErr.message);
+    const s = { skuCount: 0, categoryNames: new Set<string>() };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (catRows ?? []) as Array<any>) {
+      s.skuCount += 1;
+      if (r.category_name) s.categoryNames.add(r.category_name);
+    }
+    stats.set(a.vendor_id, s);
   }
 
   return rows.map((a) => {
@@ -151,25 +155,27 @@ export async function verifyCustomerCatalogAccess(
 /**
  * Full catalog payload for the builder page.
  *
- * Caller passes the customer's verified access info (containerCode/terms/currency)
- * — these become the catalog's per-customer settings, NOT a fresh lookup.
- * This prevents the wrong customer's access row from being used when multiple
- * customers share a vendor with different container types or terms.
+ * Caller passes the customer ID + verified access info. The function applies
+ * layered margin resolution: per-customer + per-vendor override > customer-wide
+ * override > vendor default > 0.20 fallback.
  */
 export async function fetchCatalogForVendor(
+  customerId: string,
   vendorId: string,
   access: CatalogAccess,
 ): Promise<VendorCatalog | null> {
   const admin = adminClient();
 
-  const rowsRes = await admin
-    .from("catalog_for_customer")
-    .select("*")
-    .eq("vendor_id", vendorId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rowsRes = await (admin as any).rpc("fn_catalog_for_customer", {
+    p_customer_id: customerId,
+    p_vendor_id: vendorId,
+  });
 
   if (rowsRes.error) throw new Error("catalog fetch failed: " + rowsRes.error.message);
 
-  const rows = rowsRes.data ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (rowsRes.data ?? []) as Array<any>;
   if (rows.length === 0) return null;
 
   // Group rows into categories. Order: by category_name asc (stable + readable).

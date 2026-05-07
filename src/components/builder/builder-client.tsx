@@ -3,43 +3,92 @@
 // BuilderClient — the orchestrator.
 //
 // Owns:
-//  - quantity map (Record<vendor_product_id, number>)
+//  - quantity map (Record<vendor_product_id, number>) — hydrated from a server-side draft on mount
 //  - optimize modal open/close
 //  - submission pending + result
+//  - autosave to draft_orders on debounced qty change (Phase C)
 //
 // Children:
 //  - BuilderHeader (sticky)
 //  - ProductTable (left column)
 //  - SummaryPanel (sticky right column)
 //  - OptimizeModal (overlay)
-//  - OrderConfirmation (replaces the body on success)
+//  - OrderConfirmation (replaces the body on success — proposes a follow-up
+//    catalog if the customer has another one to build, Phase D)
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { BuilderHeader } from "./builder-header";
 import { ProductTable } from "./product-table";
 import { SummaryPanel } from "./summary-panel";
 import { OptimizeModal } from "./optimize-modal";
 import { OrderConfirmation } from "./order-confirmation";
 import { submitOrderAction } from "@/actions/submit-order";
+import { saveDraftAction } from "@/actions/save-draft";
 import { computeTotals, type QtyMap } from "@/lib/math/fill";
 import type { CatalogSummary, VendorCatalog } from "@/lib/catalog/types";
+import type { CatalogStatusByVendorId } from "@/lib/catalog/status";
 
 interface BuilderClientProps {
   catalog: VendorCatalog;
   customerName: string;
   otherCatalogs: CatalogSummary[];
+  /** Per-catalog status badges for the header dropdown + submit-and-continue. */
+  otherCatalogStatus?: CatalogStatusByVendorId;
+  /** Initial qty map (from a hydrated draft, or empty). */
+  initialQtys?: QtyMap;
+  /** True if any keys were pruned during draft hydration. Surface via banner. */
+  draftHadStaleSkus?: boolean;
+  /** Last saved-at timestamp for the hydrated draft. */
+  draftUpdatedAt?: string | null;
 }
+
+const AUTOSAVE_DEBOUNCE_MS = 1000;
 
 export function BuilderClient({
   catalog,
   customerName,
   otherCatalogs,
+  otherCatalogStatus = {},
+  initialQtys = {},
+  draftHadStaleSkus = false,
+  draftUpdatedAt = null,
 }: BuilderClientProps) {
-  const [qtys, setQtys] = useState<QtyMap>({});
+  const [qtys, setQtys] = useState<QtyMap>(initialQtys);
   const [showOptimize, setShowOptimize] = useState(false);
   const [submitting, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [submittedOrderNumber, setSubmittedOrderNumber] = useState<string | null>(null);
+  const [showStaleBanner, setShowStaleBanner] = useState<boolean>(draftHadStaleSkus);
+  const [savedAt, setSavedAt] = useState<string | null>(draftUpdatedAt);
+
+  // Autosave — fires only when qtys change after mount, debounced 1s.
+  //
+  // Suppressed during and after submit. A late autosave between submit-order's
+  // start and the React state update would resurrect the cart in draft_orders
+  // *after* submit-order already deleted it, and the customer would see their
+  // just-submitted cart on reload.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (submitting || submittedOrderNumber) return; // freeze during + after submit
+    const t = setTimeout(() => {
+      saveDraftAction({
+        vendorId: catalog.vendorId,
+        catalogSlug: catalog.slug,
+        qtyMap: qtys,
+      })
+        .then((res) => {
+          if (res.ok && res.updatedAt) setSavedAt(res.updatedAt);
+        })
+        .catch(() => {
+          // Silent — autosave failures shouldn't disrupt the user.
+        });
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [qtys, catalog.vendorId, catalog.slug, submitting, submittedOrderNumber]);
 
   const totals = computeTotals(catalog, qtys);
 
@@ -70,15 +119,19 @@ export function BuilderClient({
           catalog={catalog}
           customerName={customerName}
           otherCatalogs={otherCatalogs}
+          otherCatalogStatus={otherCatalogStatus}
         />
         <OrderConfirmation
           catalog={catalog}
           totals={totals}
           qtys={qtys}
           orderNumber={submittedOrderNumber}
+          otherCatalogs={otherCatalogs}
+          otherCatalogStatus={otherCatalogStatus}
           onBack={() => {
             setQtys({});
             setSubmittedOrderNumber(null);
+            setSavedAt(null);
           }}
         />
       </div>
@@ -91,6 +144,7 @@ export function BuilderClient({
         catalog={catalog}
         customerName={customerName}
         otherCatalogs={otherCatalogs}
+        otherCatalogStatus={otherCatalogStatus}
       />
       <main
         style={{
@@ -104,6 +158,47 @@ export function BuilderClient({
         }}
       >
         <div style={{ minWidth: 0 }}>
+          {showStaleBanner ? (
+            <div
+              role="status"
+              style={{
+                marginBottom: 14,
+                padding: "10px 14px",
+                background: "var(--burgundy-bg)",
+                border: "1px solid var(--burgundy)",
+                color: "var(--burgundy)",
+                fontFamily: "var(--font-geist-mono), monospace",
+                fontSize: 11,
+                letterSpacing: "0.04em",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <span>
+                ITEMS REMOVED FROM YOUR DRAFT — one or more SKUs are no longer
+                available. Review your cart before submitting.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowStaleBanner(false)}
+                style={{
+                  background: "transparent",
+                  border: 0,
+                  color: "var(--burgundy)",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  padding: 4,
+                }}
+                aria-label="Dismiss notice"
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
+
           <div
             className="flex"
             style={{ marginBottom: 14, alignItems: "baseline", justifyContent: "space-between" }}
@@ -113,6 +208,15 @@ export function BuilderClient({
               <div className="t-h2">{catalog.displayName}</div>
             </div>
             <div className="flex" style={{ gap: 14, alignItems: "baseline" }}>
+              {savedAt ? (
+                <div
+                  className="mono t-cap"
+                  style={{ color: "var(--mid)" }}
+                  title={`Last saved ${new Date(savedAt).toLocaleString()}`}
+                >
+                  Cart auto-saved
+                </div>
+              ) : null}
               <div className="mono t-cap">
                 Min {catalog.minCaseQty} cases/line · {catalog.categories.length} categor{catalog.categories.length === 1 ? "y" : "ies"} · {catalog.skuCount} SKU{catalog.skuCount === 1 ? "" : "s"}
               </div>

@@ -9,19 +9,35 @@ import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { Wordmark } from "@/components/ui/wordmark";
 import { Caret } from "@/components/ui/caret";
+import { Chip } from "@/components/ui/chip";
 import { CONTAINERS } from "@/lib/containers";
 import type { CatalogSummary, VendorCatalog } from "@/lib/catalog/types";
+import type { CatalogStatusByVendorId } from "@/lib/catalog/status";
 
 interface BuilderHeaderProps {
   catalog: VendorCatalog;
   customerName: string;
   otherCatalogs: CatalogSummary[];
+  otherCatalogStatus?: CatalogStatusByVendorId;
+}
+
+function relativeDate(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86_400_000);
+  if (days < 1) return "today";
+  if (days < 2) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
 }
 
 export function BuilderHeader({
   catalog,
   customerName,
   otherCatalogs,
+  otherCatalogStatus = {},
 }: BuilderHeaderProps) {
   const containerLabel = CONTAINERS[catalog.containerCode]?.label ?? catalog.containerCode;
   const [open, setOpen] = useState(false);
@@ -123,33 +139,57 @@ export function BuilderHeader({
               >
                 Switch catalog
               </div>
-              {others.map((o) => (
-                <Link
-                  key={o.vendorId}
-                  href={{ pathname: "/", query: { c: o.slug } }}
-                  className="row-hover"
-                  style={{
-                    padding: "10px 14px",
-                    cursor: "pointer",
-                    borderBottom: "1px solid var(--rule)",
-                    display: "flex",
-                    flexDirection: "column",
-                    textDecoration: "none",
-                    color: "inherit",
-                  }}
-                  onClick={() => setOpen(false)}
-                >
-                  <div className="t-body" style={{ fontWeight: 500 }}>
-                    {o.displayName}
-                  </div>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 11, color: "var(--mid)" }}
+              {others.map((o) => {
+                const status = otherCatalogStatus[o.vendorId] ?? {};
+                const lastOrderRel = relativeDate(status.lastOrderAt);
+                return (
+                  <Link
+                    key={o.vendorId}
+                    href={{ pathname: "/", query: { c: o.slug } }}
+                    className="row-hover"
+                    style={{
+                      padding: "10px 14px",
+                      cursor: "pointer",
+                      borderBottom: "1px solid var(--rule)",
+                      display: "flex",
+                      flexDirection: "column",
+                      textDecoration: "none",
+                      color: "inherit",
+                      gap: 4,
+                    }}
+                    onClick={() => setOpen(false)}
                   >
-                    {(CONTAINERS[o.containerCode]?.label ?? o.containerCode)} · {o.termsLabel}
-                  </div>
-                </Link>
-              ))}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span className="t-body" style={{ fontWeight: 500 }}>
+                        {o.displayName}
+                      </span>
+                      {status.hasDraft ? (
+                        <Chip variant="ink">
+                          Draft · {status.draftCases} cs
+                        </Chip>
+                      ) : null}
+                    </div>
+                    <div
+                      className="mono"
+                      style={{ fontSize: 11, color: "var(--mid)" }}
+                    >
+                      {(CONTAINERS[o.containerCode]?.label ?? o.containerCode)} · {o.termsLabel}
+                      {lastOrderRel ? (
+                        <span style={{ color: "var(--warm)" }}>
+                          {" "}· last order {lastOrderRel}
+                        </span>
+                      ) : null}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           ) : null}
         </div>

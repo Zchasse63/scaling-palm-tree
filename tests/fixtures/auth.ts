@@ -112,7 +112,15 @@ export const test = base.extend<AuthFixtures>({
   // The test customer has multiple catalogs since Phase B, so bare `/` renders
   // the procurement dashboard. Tests that want the dashboard must navigate to
   // bare `/` themselves via `await page.goto("/")`.
+  //
+  // Phase C: clears all draft_orders for the test customer before each test
+  // so autosaved drafts from a previous test don't leak into the next.
   authenticatedPage: async ({ browser }, use) => {
+    // Wipe drafts for the test customer to ensure a clean cart on every test.
+    const admin = adminSupabase();
+    const TEST_CUSTOMER_ID = "68f5af45-d9b2-4f74-83c0-3275df0d6fa1";
+    await admin.from("draft_orders").delete().eq("customer_id", TEST_CUSTOMER_ID);
+
     // Restore the auth state saved by global setup.
     const context = await browser.newContext({
       storageState: AUTH_STATE_PATH,

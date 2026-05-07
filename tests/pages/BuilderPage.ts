@@ -220,9 +220,17 @@ export class BuilderPage {
     return ((await metaSpan.textContent()) ?? "").trim();
   }
 
-  /** Click "Build Another Container" in the confirmation view. */
+  /**
+   * Click the "Build Another <Catalog>" button on the confirmation view.
+   * Phase D changed this label from a static "Build Another Container" to
+   * "Build Another <displayName>" so the regex match below covers both.
+   */
   async clickBuildAnother(): Promise<void> {
-    await this.page.locator("button", { hasText: "Build Another Container" }).click();
+    await this.page
+      .locator("button")
+      .filter({ hasText: /Build Another/i })
+      .first()
+      .click();
   }
 
   /** Click "View Past Orders" in the confirmation view. */
