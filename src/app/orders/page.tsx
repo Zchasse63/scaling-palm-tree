@@ -10,6 +10,23 @@ import { fetchOrdersForCustomer } from "@/lib/orders/query";
 
 export const dynamic = "force-dynamic";
 
+interface OrdersPageProps {
+  searchParams: Promise<{ filter?: string }>;
+}
+
+const FILTER_GROUPS: Record<string, { label: string; statuses: string[] }> = {
+  all: { label: "All", statuses: [] },
+  active: {
+    label: "Active",
+    statuses: ["quoted", "confirmed", "in_production", "ready", "shipped"],
+  },
+  completed: {
+    label: "Completed",
+    statuses: ["delivered", "invoiced", "paid"],
+  },
+  cancelled: { label: "Cancelled", statuses: ["cancelled"] },
+};
+
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -23,9 +40,17 @@ function formatDate(iso: string): string {
   }
 }
 
-export default async function OrdersPage() {
+export default async function OrdersPage({ searchParams }: OrdersPageProps) {
+  const sp = await searchParams;
+  const filter = sp.filter && FILTER_GROUPS[sp.filter] ? sp.filter : "all";
   const session = await requireSession();
-  const orders = await fetchOrdersForCustomer(session.customerId);
+  const allOrders = await fetchOrdersForCustomer(session.customerId);
+  const orders =
+    filter === "all"
+      ? allOrders
+      : allOrders.filter((o) =>
+          FILTER_GROUPS[filter].statuses.includes(o.status),
+        );
 
   return (
     <div className="paper-bg" style={{ minHeight: "100vh" }}>
@@ -48,6 +73,19 @@ export default async function OrdersPage() {
           <Wordmark height={32} />
           <div className="flex items-center" style={{ gap: 18 }}>
             <div className="mono t-cap" style={{ color: "var(--warm)" }}>{session.customerName}</div>
+            {session.isAdmin ? (
+              <Link
+                href="/admin"
+                className="mono t-cap"
+                style={{
+                  color: "var(--warm)",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+              >
+                Admin →
+              </Link>
+            ) : null}
             <SignOutButton
               ariaLabel="Sign out"
               className="flex items-center justify-center"
@@ -83,6 +121,46 @@ export default async function OrdersPage() {
           </Link>
         </div>
 
+        {/* Filter chips */}
+        <div
+          className="flex"
+          style={{
+            gap: 8,
+            marginBottom: 18,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          {Object.entries(FILTER_GROUPS).map(([key, group]) => {
+            const count =
+              key === "all"
+                ? allOrders.length
+                : allOrders.filter((o) =>
+                    group.statuses.includes(o.status),
+                  ).length;
+            const active = filter === key;
+            return (
+              <Link
+                key={key}
+                href={key === "all" ? "/orders" : `/orders?filter=${key}`}
+                className="mono"
+                style={{
+                  padding: "6px 12px",
+                  border: active ? "1px solid var(--ink)" : "1px solid var(--rule-strong)",
+                  background: active ? "var(--ink)" : "white",
+                  color: active ? "white" : "var(--ink)",
+                  fontSize: 11,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  textDecoration: "none",
+                }}
+              >
+                {group.label} · {count}
+              </Link>
+            );
+          })}
+        </div>
+
         {orders.length === 0 ? (
           <div
             style={{
@@ -92,9 +170,15 @@ export default async function OrdersPage() {
               textAlign: "center",
             }}
           >
-            <div className="t-h2" style={{ marginBottom: 8 }}>No container orders yet</div>
+            <div className="t-h2" style={{ marginBottom: 8 }}>
+              {filter === "all"
+                ? "No container orders yet"
+                : `No ${FILTER_GROUPS[filter].label.toLowerCase()} orders`}
+            </div>
             <div className="t-cap" style={{ marginBottom: 24 }}>
-              Build your first container from any of your active catalogs.
+              {filter === "all"
+                ? "Build your first container from any of your active catalogs."
+                : "Try a different filter or build a new container."}
             </div>
             <Link href="/" style={{ textDecoration: "none" }}>
               <Button kind="primary">Choose a catalog</Button>
@@ -132,8 +216,9 @@ export default async function OrdersPage() {
               ))}
             </div>
             {orders.map((o) => (
-              <div
+              <Link
                 key={o.id}
+                href={`/orders/${o.id}`}
                 className="row-hover"
                 style={{
                   display: "grid",
@@ -142,6 +227,9 @@ export default async function OrdersPage() {
                   padding: "14px 22px",
                   borderBottom: "1px solid var(--rule)",
                   alignItems: "center",
+                  textDecoration: "none",
+                  color: "inherit",
+                  cursor: "pointer",
                 }}
               >
                 <div className="mono" style={{ fontSize: 12 }}>
@@ -169,7 +257,7 @@ export default async function OrdersPage() {
                 <div>
                   <StatusPill status={o.status} />
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}

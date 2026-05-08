@@ -24,7 +24,10 @@ export class OrdersPage {
     this.buildContainerButton = page.locator("a[href='/']").locator("button");
 
     // Order rows — each row has the class "row-hover" inside the table.
-    this.orderRows = page.locator("div.row-hover");
+    // Rows are <a class="row-hover"> (links to the detail page); pin the
+    // selector to the orders main so it doesn't catch catalog row-hovers
+    // on other pages.
+    this.orderRows = page.locator("main a.row-hover");
 
     // Page heading.
     this.pageTitle = page.locator("div.t-h1", { hasText: "Container orders" });

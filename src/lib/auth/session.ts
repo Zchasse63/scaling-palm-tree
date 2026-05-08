@@ -11,11 +11,18 @@ export interface AuthedSession {
   customerId: string;
   customerName: string;
   displayName: string | null;
+  /**
+   * When true, the user can access `/admin/*` routes — sees every customer's
+   * orders, can update statuses, export CSVs, etc. Resolved from
+   * customer_user_profiles.is_admin on every request (no caching).
+   */
+  isAdmin: boolean;
 }
 
 /**
  * Fetches the current session and resolves the customer profile.
- * Redirects to /signin if no user, or 403s if no profile (no customer access).
+ * Redirects to /signin if no user, or to /signin?error=not_provisioned if
+ * authed but not mapped to a customer.
  *
  * The customer_user_profiles lookup uses the admin client so it's not subject
  * to RLS races — we trust auth.uid() coming back from the SSR client and
@@ -31,19 +38,23 @@ export async function requireSession(): Promise<AuthedSession> {
   const email = userData.user.email ?? "";
 
   const admin = adminClient();
-  const { data: profile, error: profileErr } = await admin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const profileRes = (await (admin as any)
     .from("customer_user_profiles")
-    .select("company_id, display_name")
+    .select("company_id, display_name, is_admin")
     .eq("user_id", userId)
-    .maybeSingle();
+    .maybeSingle()) as {
+    data: { company_id: string; display_name: string | null; is_admin: boolean } | null;
+    error: { message: string } | null;
+  };
 
-  if (profileErr) {
-    throw new Error("Failed to load customer profile: " + profileErr.message);
+  if (profileRes.error) {
+    throw new Error("Failed to load customer profile: " + profileRes.error.message);
   }
-  if (!profile) {
-    // User authenticated but not provisioned for the Container Builder.
+  if (!profileRes.data) {
     redirect("/signin?error=not_provisioned");
   }
+  const profile = profileRes.data;
 
   const { data: company, error: companyErr } = await admin
     .from("companies")
@@ -61,7 +72,21 @@ export async function requireSession(): Promise<AuthedSession> {
     customerId: company.id,
     customerName: company.name,
     displayName: profile.display_name,
+    isAdmin: profile.is_admin === true,
   };
+}
+
+/**
+ * Admin-only gate. Calls requireSession(), then redirects authed-but-not-admin
+ * users back to /orders (their own customer view). Use at the top of every
+ * /admin page + admin-only server actions.
+ */
+export async function requireAdmin(): Promise<AuthedSession> {
+  const session = await requireSession();
+  if (!session.isAdmin) {
+    redirect("/orders");
+  }
+  return session;
 }
 
 /** Non-redirecting variant for places that want to handle missing auth themselves. */
@@ -71,11 +96,15 @@ export async function getOptionalSession(): Promise<AuthedSession | null> {
   if (!data.user) return null;
 
   const admin = adminClient();
-  const { data: profile } = await admin
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const profileRes = (await (admin as any)
     .from("customer_user_profiles")
-    .select("company_id, display_name")
+    .select("company_id, display_name, is_admin")
     .eq("user_id", data.user.id)
-    .maybeSingle();
+    .maybeSingle()) as {
+    data: { company_id: string; display_name: string | null; is_admin: boolean } | null;
+  };
+  const profile = profileRes.data;
   if (!profile) return null;
 
   const { data: company } = await admin
@@ -91,5 +120,6 @@ export async function getOptionalSession(): Promise<AuthedSession | null> {
     customerId: company.id,
     customerName: company.name,
     displayName: profile.display_name,
+    isAdmin: profile.is_admin === true,
   };
 }
