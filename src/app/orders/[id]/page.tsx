@@ -8,6 +8,7 @@ import { Caret } from "@/components/ui/caret";
 import { SignOutButton } from "@/components/ui/sign-out-button";
 import { OrderDetailView } from "@/components/orders/order-detail-view";
 import { PrintButton } from "@/components/orders/print-button";
+import { ReorderButton } from "@/components/orders/reorder-button";
 import { requireSession } from "@/lib/auth/session";
 import { fetchOrderDetail } from "@/lib/orders/query";
 
@@ -90,7 +91,15 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         <OrderDetailView
           order={order}
           mode="customer"
-          headerActions={<PrintButton />}
+          headerActions={
+            <div
+              className="flex"
+              style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}
+            >
+              <ReorderButton orderId={order.id} />
+              <PrintButton />
+            </div>
+          }
         />
       </main>
     </div>

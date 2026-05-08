@@ -236,6 +236,32 @@ export function OrderDetailView({
 
       {belowHeader ? <div className="no-print">{belowHeader}</div> : null}
 
+      {/* Customer-facing note (set at submit time) — render only when present */}
+      {order.notes ? (
+        <section
+          style={{
+            background: "white",
+            border: "1px solid var(--rule)",
+            padding: "16px 22px",
+          }}
+        >
+          <div className="t-eyebrow" style={{ marginBottom: 8 }}>
+            Customer note
+          </div>
+          <div
+            className="mono"
+            style={{
+              fontSize: 12,
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+              color: "var(--ink)",
+            }}
+          >
+            {order.notes}
+          </div>
+        </section>
+      ) : null}
+
       {/* LINE ITEMS */}
       <section style={{ background: "white", border: "1px solid var(--rule)" }}>
         <div

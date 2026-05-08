@@ -102,6 +102,7 @@ export default async function AdminOrdersPage({ searchParams }: AdminOrdersPageP
       ) : (
         <div style={{ background: "white", border: "1px solid var(--rule)" }}>
           <div
+            className="admin-orders-row-headers"
             style={{
               display: "grid",
               gridTemplateColumns:
@@ -135,7 +136,7 @@ export default async function AdminOrdersPage({ searchParams }: AdminOrdersPageP
             <Link
               key={o.id}
               href={`/admin/orders/${o.id}`}
-              className="row-hover"
+              className="row-hover admin-orders-row"
               style={{
                 display: "grid",
                 gridTemplateColumns:

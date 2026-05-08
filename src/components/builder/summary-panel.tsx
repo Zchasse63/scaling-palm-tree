@@ -23,7 +23,12 @@ interface SummaryPanelProps {
    * blocked and the disabled reason explains it. Subtotals render as "—".
    */
   pricesPending?: boolean;
+  /** Customer-facing note attached to the order on submit. Optional. */
+  notes: string;
+  onNotesChange: (next: string) => void;
 }
+
+const NOTES_MAX = 2000;
 
 export function SummaryPanel({
   totals,
@@ -34,6 +39,8 @@ export function SummaryPanel({
   pending,
   errored,
   pricesPending = false,
+  notes,
+  onNotesChange,
 }: SummaryPanelProps) {
   const empty = totals.cases === 0;
   const meetsMinFill = totals.volPct >= minFillPct - 0.05;
@@ -203,6 +210,45 @@ export function SummaryPanel({
       </div>
 
       <div className="rule" />
+
+      {/* Customer-facing note (optional) — saved to customer_orders.notes */}
+      <div style={{ padding: "18px 22px 0" }}>
+        <div className="t-eyebrow" style={{ marginBottom: 8 }}>
+          Special instructions <span style={{ color: "var(--warm)" }}>· Optional</span>
+        </div>
+        <textarea
+          className="input"
+          placeholder="Anything we should know? Carrier preference, delivery date constraints, sample requests, custom labeling…"
+          value={notes}
+          maxLength={NOTES_MAX}
+          onChange={(e) => onNotesChange(e.target.value)}
+          disabled={pending || pricesPending}
+          style={{
+            width: "100%",
+            minHeight: 64,
+            fontFamily: "var(--font-geist-mono), monospace",
+            fontSize: 11,
+            lineHeight: 1.5,
+            padding: "8px 10px",
+            resize: "vertical",
+          }}
+        />
+        {notes.length > NOTES_MAX * 0.85 ? (
+          <div
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: notes.length >= NOTES_MAX ? "var(--burgundy)" : "var(--mid)",
+              marginTop: 4,
+              textAlign: "right",
+            }}
+          >
+            {notes.length} / {NOTES_MAX}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rule" style={{ marginTop: 14 }} />
 
       {/* Actions */}
       <div style={{ padding: "18px 22px 22px", display: "flex", flexDirection: "column", gap: 10 }}>

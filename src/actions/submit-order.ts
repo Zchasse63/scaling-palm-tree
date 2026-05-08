@@ -22,6 +22,12 @@ import { getContainerSpec } from "@/lib/containers";
 export interface SubmitOrderInput {
   vendorId: string;
   qtys: QtyMap;
+  /**
+   * Optional customer-facing note saved to customer_orders.notes. Visible
+   * to the admin in /admin/orders/[id]; surfaced back to the customer on
+   * the order detail page so they can confirm what they wrote.
+   */
+  notes?: string | null;
 }
 
 export interface SubmitOrderResult {
@@ -170,6 +176,11 @@ export async function submitOrderAction(
 
     const orderNumber = await nextOrderNumber();
 
+    // Sanitize customer note: trim, cap at 2000 chars to avoid abuse.
+    const trimmedNotes =
+      typeof input.notes === "string" ? input.notes.trim().slice(0, 2000) : "";
+    const customerNotes = trimmedNotes.length > 0 ? trimmedNotes : null;
+
     const { data: orderRow, error: orderErr } = await admin
       .from("customer_orders")
       .insert({
@@ -182,6 +193,7 @@ export async function submitOrderAction(
         total: Number(totals.subtotal.toFixed(2)),
         case_count: totals.cases,
         pallet_count: Math.round(totals.palletEq),
+        notes: customerNotes,
         metadata: {
           source: "container_builder",
           vendor_id: input.vendorId,

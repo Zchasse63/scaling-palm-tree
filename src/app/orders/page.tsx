@@ -187,6 +187,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         ) : (
           <div style={{ background: "white", border: "1px solid var(--rule)" }}>
             <div
+              className="orders-row-headers"
               style={{
                 display: "grid",
                 gridTemplateColumns: "120px 110px 1fr 130px 90px 100px 130px 130px",
@@ -219,7 +220,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               <Link
                 key={o.id}
                 href={`/orders/${o.id}`}
-                className="row-hover"
+                className="row-hover orders-row"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "120px 110px 1fr 130px 90px 100px 130px 130px",

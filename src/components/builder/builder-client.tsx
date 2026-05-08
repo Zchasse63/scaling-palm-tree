@@ -60,6 +60,10 @@ export function BuilderClient({
   const [submittedOrderNumber, setSubmittedOrderNumber] = useState<string | null>(null);
   const [showStaleBanner, setShowStaleBanner] = useState<boolean>(draftHadStaleSkus);
   const [savedAt, setSavedAt] = useState<string | null>(draftUpdatedAt);
+  // Customer-facing note attached to the order on submit. Optional. Capped
+  // at 2000 chars by the server; we soft-cap at the same number client-side
+  // so the customer doesn't waste typing.
+  const [orderNotes, setOrderNotes] = useState<string>("");
 
   // Autosave — fires only when qtys change after mount, debounced 1s.
   //
@@ -103,6 +107,7 @@ export function BuilderClient({
       const res = await submitOrderAction({
         vendorId: catalog.vendorId,
         qtys,
+        notes: orderNotes,
       });
       if (!res.ok) {
         setError(res.error ?? "Submission failed.");
@@ -147,6 +152,7 @@ export function BuilderClient({
         otherCatalogStatus={otherCatalogStatus}
       />
       <main
+        className="builder-grid"
         style={{
           maxWidth: 1440,
           margin: "0 auto",
@@ -305,6 +311,8 @@ export function BuilderClient({
           pending={submitting}
           errored={error}
           pricesPending={catalog.pricesPending}
+          notes={orderNotes}
+          onNotesChange={setOrderNotes}
         />
       </main>
 

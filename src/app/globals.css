@@ -326,3 +326,61 @@ html, body {
 
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 @keyframes shimmer { 0% { opacity: 0.4 } 50% { opacity: 1 } 100% { opacity: 0.4 } }
+
+/* ---------------------------------------------------------------- */
+/*  Mobile responsive overrides                                      */
+/* ---------------------------------------------------------------- */
+/* Below 900px: collapse grid layouts that were designed for desktop. */
+
+@media (max-width: 900px) {
+  /* Builder: two-column main → single column. SummaryPanel sticks
+     to top of viewport instead of being a sticky sidebar. */
+  .builder-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .builder-grid > aside {
+    position: static !important;
+    width: 100% !important;
+  }
+
+  /* Orders + admin tables: turn header row off, render each "row"
+     as a stack of label/value pairs. Cleaner than horizontal scroll. */
+  .row-hover.orders-row,
+  .row-hover.admin-orders-row {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    padding: 14px 18px !important;
+  }
+  .orders-row-headers,
+  .admin-orders-row-headers {
+    display: none !important;
+  }
+  .row-hover.orders-row > *,
+  .row-hover.admin-orders-row > * {
+    text-align: left !important;
+  }
+
+  /* Catalog tiles dashboard: larger gap, single column. */
+  main {
+    padding: 24px 16px 48px !important;
+  }
+  /* All chrome headers shrink padding */
+  header > div {
+    padding: 14px 18px !important;
+  }
+  /* Order detail header: stack the action area below the order number */
+  .order-detail section {
+    padding: 18px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Aggressively shrink headlines on small phones */
+  .t-h1 { font-size: 22px !important; }
+  .t-h2 { font-size: 18px !important; }
+  .t-stat { font-size: 40px !important; }
+  /* Stat cards stack 1-up on narrow viewports */
+  .admin-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
