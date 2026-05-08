@@ -16,6 +16,11 @@ name: Deploy to Netlify
 #   NEXT_PUBLIC_SUPABASE_ANON_KEY
 #   SUPABASE_SERVICE_ROLE_KEY
 # These come from the Netlify build environment, not GitHub Actions.
+#
+# Netlify CLI is pinned to a known-good version. Newer CLIs (>=24) attempt to
+# fetch site "extensions" from the API and fail with 403 in CI contexts where
+# the auth token doesn't have the extensions scope. 23.13.x doesn't make that
+# call and works reliably with personal access tokens.
 
 on:
   push:
@@ -48,4 +53,4 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: npx netlify deploy --prod --build --site="$NETLIFY_SITE_ID"
+        run: npx -y netlify-cli@23.13.5 deploy --prod --build --site="$NETLIFY_SITE_ID"
