@@ -1,26 +1,22 @@
 name: Deploy to Netlify
 
-# The Netlify site `servous-container-builder` (a4ebac53-...) is not connected
-# to this repo via Netlify's native GitHub App, so pushing to main does NOT
-# trigger a build there automatically. This workflow closes that gap: every
-# push to main runs `netlify deploy --prod --build` from a GitHub-hosted
-# runner, which builds the Next.js app with the Netlify Next.js plugin and
-# uploads the artifact directly to the site.
+# Builds + deploys to `servous-container-builder` (a4ebac53-...) on every
+# push to main.
 #
-# Required repo secrets (already set):
-#   NETLIFY_AUTH_TOKEN  — personal access token from app.netlify.com
+# Required repo secrets:
+#   NETLIFY_AUTH_TOKEN  — PAT from app.netlify.com → User settings → Apps
+#   NETLIFY_USER_ID     — from ~/Library/Preferences/netlify/config.json
+#   NETLIFY_USER_EMAIL  — same source
+#   NETLIFY_USER_NAME   — same source
 #   NETLIFY_SITE_ID     — a4ebac53-5df6-4b54-8867-9fc7abd8205d
 #
-# Required env vars baked into Netlify Site settings (NOT this workflow):
-#   NEXT_PUBLIC_SUPABASE_URL
-#   NEXT_PUBLIC_SUPABASE_ANON_KEY
-#   SUPABASE_SERVICE_ROLE_KEY
-# These come from the Netlify build environment, not GitHub Actions.
+# Build env vars (NEXT_PUBLIC_SUPABASE_URL etc.) are pulled from Netlify
+# Site Settings by @netlify/build during `--build`, so they don't need to
+# be GitHub secrets.
 #
-# Netlify CLI is pinned to a known-good version. Newer CLIs (>=24) attempt to
-# fetch site "extensions" from the API and fail with 403 in CI contexts where
-# the auth token doesn't have the extensions scope. 23.13.x doesn't make that
-# call and works reliably with personal access tokens.
+# Why we synthesize a config file: token-only env-var auth lacks the
+# "extensions" scope in some CI contexts. Reads from ~/.config/netlify/
+# config.json restore the full session shape and dodge the 403.
 
 on:
   push:
@@ -46,11 +42,43 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Synthesize Netlify CLI session config
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_USER_ID: ${{ secrets.NETLIFY_USER_ID }}
+          NETLIFY_USER_EMAIL: ${{ secrets.NETLIFY_USER_EMAIL }}
+          NETLIFY_USER_NAME: ${{ secrets.NETLIFY_USER_NAME }}
+        run: |
+          mkdir -p "$HOME/.config/netlify"
+          cat > "$HOME/.config/netlify/config.json" <<EOF
+          {
+            "telemetryDisabled": true,
+            "userId": "$NETLIFY_USER_ID",
+            "users": {
+              "$NETLIFY_USER_ID": {
+                "id": "$NETLIFY_USER_ID",
+                "name": "$NETLIFY_USER_NAME",
+                "email": "$NETLIFY_USER_EMAIL",
+                "auth": {
+                  "token": "$NETLIFY_AUTH_TOKEN",
+                  "github": {}
+                }
+              }
+            }
+          }
+          EOF
+          chmod 600 "$HOME/.config/netlify/config.json"
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Deploy to Netlify (production, build via plugin)
+      - name: Deploy to Netlify (build + deploy)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: npx -y netlify-cli@23.13.5 deploy --prod --build --site="$NETLIFY_SITE_ID"
+        run: |
+          npx -y netlify-cli@23.13.5 deploy \
+            --prod \
+            --build \
+            --site="$NETLIFY_SITE_ID" \
+            --message="GH Action $GITHUB_SHA"
