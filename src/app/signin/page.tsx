@@ -144,7 +144,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
               letterSpacing: "0.06em",
             }}
           >
-            Magic-link sign-in only. Servous never asks for a password.
+            Passwords are issued and reset by your Servous representative.
             <br />
             Need an account? Email{" "}
             <a

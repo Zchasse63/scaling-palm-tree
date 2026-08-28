@@ -104,9 +104,14 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
             >
               Customer view
             </Link>
-            <div className="mono t-cap" style={{ color: "var(--warm)" }}>
+            <Link
+              href="/account"
+              className="mono t-cap"
+              style={{ color: "var(--warm)", textDecoration: "none" }}
+              title="Account settings"
+            >
               {session.email}
-            </div>
+            </Link>
             <SignOutButton
               ariaLabel="Sign out"
               className="flex items-center justify-center"

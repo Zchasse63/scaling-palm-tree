@@ -269,6 +269,20 @@ export function BuilderHeader({
               >
                 Order history
               </Link>
+              <Link
+                href="/account"
+                className="row-hover"
+                style={{
+                  padding: "10px 14px",
+                  display: "block",
+                  borderBottom: "1px solid var(--rule)",
+                  textDecoration: "none",
+                  color: "inherit",
+                }}
+                onClick={() => setAcctOpen(false)}
+              >
+                Change password
+              </Link>
               {isAdmin ? (
                 <Link
                   href="/admin"
