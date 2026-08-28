@@ -19,6 +19,8 @@
   --color-press: #EFEEEB;
   --color-burgundy: #7C1A1A;
   --color-burgundy-bg: #F4E5E5;
+  --color-amber: #8A5A12;
+  --color-amber-bg: #F5ECD8;
 
   --font-sans: var(--font-geist), "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: var(--font-geist-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -37,6 +39,8 @@
   --press: #EFEEEB;
   --burgundy: #7C1A1A;
   --burgundy-bg: #F4E5E5;
+  --amber: #8A5A12;
+  --amber-bg: #F5ECD8;
 
   --hairline: 1px solid var(--rule);
   --hairline-strong: 1px solid var(--rule-strong);
@@ -204,6 +208,28 @@ html, body {
 .chip-ink { border-color: var(--ink); color: var(--ink); }
 .chip-warm { border-color: var(--rule-strong); color: var(--mid); }
 .chip-burgundy { border-color: var(--burgundy); color: var(--burgundy); background: white; }
+.chip-amber { border-color: var(--amber); color: var(--amber); background: transparent; }
+
+/* Feed banners (inventory) */
+.banner-amber {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  padding: 10px 16px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+}
+.banner-alarm {
+  background: var(--burgundy);
+  color: white;
+  border: 1px solid var(--burgundy);
+  padding: 10px 16px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+}
+
+/* Inventory table: per-cell mobile labels (hidden on desktop) */
+.inv-label { display: none; }
 
 /* Progress */
 .progress {
@@ -359,6 +385,36 @@ html, body {
   .row-hover.admin-orders-row > * {
     text-align: left !important;
   }
+
+  /* Inventory table: same stacked collapse, with per-cell labels shown */
+  .admin-inventory-row {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    padding: 14px 18px !important;
+  }
+  .admin-inventory-row-headers {
+    display: none !important;
+  }
+  .admin-inventory-row > * {
+    text-align: left !important;
+  }
+  .inv-label {
+    display: inline-block;
+    margin-right: 8px;
+  }
+  .inv-hide-mobile {
+    display: none !important;
+  }
+  /* Mobile stacking order: identity, then the decision trio, then detail */
+  .admin-inventory-row > .inv-c-sku { order: 0; }
+  .admin-inventory-row > .inv-c-desc { order: 1; }
+  .admin-inventory-row > .inv-c-avail { order: 2; }
+  .admin-inventory-row > .inv-c-cover { order: 3; }
+  .admin-inventory-row > .inv-c-status { order: 4; }
+  .admin-inventory-row > .inv-c-onhand { order: 5; }
+  .admin-inventory-row > .inv-c-staged { order: 6; }
+  .admin-inventory-row > .inv-c-orders { order: 7; }
+  .admin-inventory-row > .inv-c-inbound { order: 8; }
 
   /* Catalog tiles dashboard: larger gap, single column. */
   main {

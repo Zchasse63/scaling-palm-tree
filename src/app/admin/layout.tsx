@@ -79,6 +79,19 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
               Orders
             </Link>
             <Link
+              href="/admin/inventory"
+              className="mono"
+              style={{
+                color: "white",
+                fontSize: 11,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                textDecoration: "none",
+              }}
+            >
+              Inventory
+            </Link>
+            <Link
               href="/orders"
               className="mono"
               style={{

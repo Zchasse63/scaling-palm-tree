@@ -87,6 +87,9 @@ export type Database = {
           status: string;
           quoted_at: string;
           confirmed_at: string | null;
+          shipped_at: string | null;
+          delivered_at: string | null;
+          requested_date: string | null;
           payment_terms: string | null;
           pricing_policy_id: string | null;
           subtotal_product: number;
@@ -127,6 +130,7 @@ export type Database = {
           pack_size: string | null;
           cases_per_pallet: number | null;
           qty_cases: number;
+          qty_shipped_cases: number;
           vendor_cost_per_case: number;
           margin_pct_applied: number;
           freight_per_case: number;
@@ -192,6 +196,190 @@ export type Database = {
           metadata?: Json;
         };
         Update: Partial<Database["public"]["Tables"]["vendor_products"]["Insert"]>;
+        Relationships: [];
+      };
+      // Inventory module tables — nullability GENERATED from the live schema
+      // on 08-27-2026 (supabase gen types); do not hand-edit nullability.
+      inventory_snapshots: {
+        Row: {
+          count_method: string | null;
+          counted_at: string;
+          counted_by: string | null;
+          created_at: string;
+          id: string;
+          location_id: string;
+          notes: string | null;
+          pallets_on_hand: number | null;
+          qty_cases: number;
+          qty_picked_cases: number | null;
+          source_file: string | null;
+          vendor_product_id: string;
+        };
+        Insert: {
+          count_method?: string | null;
+          counted_at?: string;
+          counted_by?: string | null;
+          created_at?: string;
+          id?: string;
+          location_id: string;
+          notes?: string | null;
+          pallets_on_hand?: number | null;
+          qty_cases: number;
+          qty_picked_cases?: number | null;
+          source_file?: string | null;
+          vendor_product_id: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["inventory_snapshots"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      vendor_product_warehouses: {
+        Row: {
+          allocated_qty_cases: number;
+          created_at: string;
+          id: string;
+          inventory_as_of: string | null;
+          inventory_qty_cases: number | null;
+          is_primary: boolean;
+          lead_time_days: number | null;
+          location_id: string;
+          notes: string | null;
+          reorder_point_cases: number | null;
+          reorder_qty_cases: number | null;
+          updated_at: string;
+          vendor_product_id: string;
+        };
+        Insert: {
+          allocated_qty_cases?: number;
+          created_at?: string;
+          id?: string;
+          inventory_as_of?: string | null;
+          inventory_qty_cases?: number | null;
+          is_primary?: boolean;
+          lead_time_days?: number | null;
+          location_id: string;
+          notes?: string | null;
+          reorder_point_cases?: number | null;
+          reorder_qty_cases?: number | null;
+          updated_at?: string;
+          vendor_product_id: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["vendor_product_warehouses"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      inbound_shipments: {
+        Row: {
+          container_no: string | null;
+          created_at: string;
+          destination_location_id: string | null;
+          eta: string | null;
+          etd: string | null;
+          id: string;
+          metadata: Json;
+          notes: string | null;
+          po_number: string | null;
+          receive_id: string | null;
+          received_at: string | null;
+          status: string;
+          vendor_id: string | null;
+        };
+        Insert: {
+          container_no?: string | null;
+          created_at?: string;
+          destination_location_id?: string | null;
+          eta?: string | null;
+          etd?: string | null;
+          id?: string;
+          metadata?: Json;
+          notes?: string | null;
+          po_number?: string | null;
+          receive_id?: string | null;
+          received_at?: string | null;
+          status?: string;
+          vendor_id?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["inbound_shipments"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      inbound_shipment_lines: {
+        Row: {
+          id: string;
+          notes: string | null;
+          qty_cases: number | null;
+          shipment_id: string;
+          sku: string | null;
+          vendor_product_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          notes?: string | null;
+          qty_cases?: number | null;
+          shipment_id: string;
+          sku?: string | null;
+          vendor_product_id?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["inbound_shipment_lines"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      sync_state: {
+        Row: {
+          account: string;
+          job: string;
+          last_status: string | null;
+          last_success_at: string | null;
+          machine: string | null;
+          updated_at: string;
+          watermark: string | null;
+        };
+        Insert: {
+          account?: string;
+          job: string;
+          last_status?: string | null;
+          last_success_at?: string | null;
+          machine?: string | null;
+          updated_at?: string;
+          watermark?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["sync_state"]["Insert"]>;
+        Relationships: [];
+      };
+      vendor_costs: {
+        Row: {
+          cost_basis: string;
+          cost_per_case: number;
+          created_at: string;
+          created_by: string | null;
+          effective_from: string;
+          effective_to: string | null;
+          id: string;
+          markup_factor: number;
+          notes: string | null;
+          origin_location_id: string | null;
+          source: string | null;
+          vendor_product_id: string;
+        };
+        Insert: {
+          cost_basis?: string;
+          cost_per_case: number;
+          created_at?: string;
+          created_by?: string | null;
+          effective_from: string;
+          effective_to?: string | null;
+          id?: string;
+          markup_factor?: number;
+          notes?: string | null;
+          origin_location_id?: string | null;
+          source?: string | null;
+          vendor_product_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["vendor_costs"]["Insert"]>;
         Relationships: [];
       };
     };
