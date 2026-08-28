@@ -113,6 +113,14 @@ export interface SkuDetailData {
   series: DayPoint[];
   feed: FeedHealth;
   todayKey: string;
+  /**
+   * DN-number references resolved from the email log (interactions): the DN
+   * paperwork thread's subject, date, and, when the thread body names exactly
+   * one known customer, that customer. Display-only context, labeled as
+   * email-derived; the authoritative customer/PO link arrives with the order
+   * pipeline.
+   */
+  dnRefs: Record<string, { subject: string; day: string; customer: string | null }>;
 }
 
 export interface InboundShipmentView {
@@ -652,6 +660,11 @@ export async function fetchSkuDetail(
   // Buyers: strictly real order lines on non-METRO orders, trailing 26 weeks.
   const buyers = await fetchBuyers(admin, vendorProductId, todayKey);
 
+  const dnTokens = Array.from(
+    new Set(movement.flatMap((m) => m.notes?.match(/DN-\d+/g) ?? [])),
+  );
+  const dnRefs = await fetchDnRefs(admin, dnTokens);
+
   const vp = info.get(vendorProductId);
   return {
     row,
@@ -671,7 +684,60 @@ export async function fetchSkuDetail(
     series,
     feed: dashboard.feed,
     todayKey,
+    dnRefs,
   };
+}
+
+/**
+ * Resolve UNIS DN numbers to their paperwork email in `interactions`.
+ * Customer attribution is deterministic string matching only: the thread body
+ * must name exactly ONE known customer company, otherwise null (never guess).
+ */
+async function fetchDnRefs(
+  admin: ReturnType<typeof adminClient>,
+  dnTokens: string[],
+): Promise<SkuDetailData["dnRefs"]> {
+  const out: SkuDetailData["dnRefs"] = {};
+  if (dnTokens.length === 0) return out;
+
+  const { data: customers } = await admin
+    .from("companies")
+    .select("name")
+    .eq("type", "customer");
+  const customerNames = (customers ?? []).map((c) => c.name);
+
+  const orClauses = dnTokens
+    .flatMap((t) => [`email_subject.ilike.%${t}%`, `body.ilike.%${t}%`])
+    .join(",");
+  // interactions is outside the hand-typed database.types.ts — cast per
+  // codebase convention and assert the row shape on the result.
+  const { data: emailRows } = await admin
+    .from("interactions" as never)
+    .select("occurred_at, email_subject, body")
+    .or(orClauses)
+    .order("occurred_at", { ascending: false })
+    .limit(20);
+  const emails = (emailRows ?? []) as Array<{
+    occurred_at: string;
+    email_subject: string | null;
+    body: string | null;
+  }>;
+
+  for (const dn of dnTokens) {
+    const hit = emails.find(
+      (e) =>
+        (e.email_subject ?? "").includes(dn) || (e.body ?? "").includes(dn),
+    );
+    if (!hit) continue;
+    const text = (hit.email_subject ?? "") + "\n" + (hit.body ?? "");
+    const named = customerNames.filter((n) => n.length > 3 && text.includes(n));
+    out[dn] = {
+      subject: (hit.email_subject ?? "").replace(/^((fw|fwd|re):\s*)+/i, ""),
+      day: etDayKey(hit.occurred_at),
+      customer: named.length === 1 ? named[0] : null,
+    };
+  }
+  return out;
 }
 
 function dayDiffSafe(a: string, b: string): number {

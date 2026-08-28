@@ -273,8 +273,21 @@ export default async function SkuDetailPage({ params }: PageProps) {
                       {m.deltaPhysical > 0 ? "+" : ""}
                       {fmtInt(m.deltaPhysical)}
                     </span>
-                    <span className="t-micro">
-                      {m.isReceipt ? "receipt" : m.notes ?? ""}
+                    <span
+                      className="t-micro"
+                      style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                    >
+                      <span>{m.isReceipt ? "receipt" : m.notes ?? ""}</span>
+                      {(m.notes?.match(/DN-\d+/g) ?? []).map((dn) => {
+                        const ref = detail.dnRefs[dn];
+                        if (!ref) return null;
+                        return (
+                          <span key={dn} style={{ color: "var(--char)" }}>
+                            {dn} · {ref.customer ?? `"${ref.subject}"`} (email{" "}
+                            {fmtDayShort(ref.day)})
+                          </span>
+                        );
+                      })}
                     </span>
                   </div>
                 ))

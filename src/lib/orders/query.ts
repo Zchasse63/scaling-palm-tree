@@ -22,6 +22,7 @@ export async function fetchOrdersForCustomer(
       "id, order_number, customer_id, status, quoted_at, case_count, total, metadata",
     )
     .eq("customer_id", customerId)
+    .or("order_number.is.null,order_number.not.like.METRO-%")
     .order("quoted_at", { ascending: false })
     .limit(50);
 
@@ -301,6 +302,10 @@ export async function fetchAllOrdersForAdmin(
     .select(
       "id, order_number, customer_id, status, quoted_at, case_count, total, metadata",
     )
+    // Metro-era history imports (order_number METRO-%) never surface in any
+    // order view, per the standing no-Metro rule. Null-safe: real orders keep
+    // their CB-% numbers, and a null order_number still passes.
+    .or("order_number.is.null,order_number.not.like.METRO-%")
     .order("quoted_at", { ascending: false })
     .limit(Math.min(filters.limit ?? 200, 1000));
 
@@ -413,6 +418,7 @@ export async function fetchLastOrderPerCatalog(
     .from("customer_orders")
     .select("id, order_number, status, quoted_at, case_count, total, metadata")
     .eq("customer_id", customerId)
+    .or("order_number.is.null,order_number.not.like.METRO-%")
     .order("quoted_at", { ascending: false })
     .limit(200);
   if (error) throw new Error("last-order-per-catalog fetch failed: " + error.message);

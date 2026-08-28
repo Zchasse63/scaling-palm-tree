@@ -146,19 +146,49 @@ test("INV-04 floor edit saves and reverts", async ({ authenticatedPage }) => {
   await expect(firstSku).toBeVisible({ timeout: 15_000 });
   await firstSku.click();
   await page.waitForURL(/\/admin\/inventory\/[0-9a-f-]{36}$/);
+  const vendorProductId = page.url().match(/([0-9a-f-]{36})$/)![1];
 
-  const floorButton = page.getByRole("button", {
-    name: "Floor (reorder point, cases)",
-  });
-  await expect(floorButton).toBeVisible();
-  const original = (await floorButton.textContent())?.trim() ?? "not set";
-  const originalValue = original === "not set" ? "" : original.replaceAll(",", "");
+  // Read the true original from the DB, and restore it there in finally.
+  // A UI-only revert can false-pass on the optimistic value while the server
+  // write aborts (that once left a test floor on a live SKU).
+  const admin = adminSupabase();
+  const { data: loc } = await admin
+    .from("inventory_snapshots")
+    .select("location_id")
+    .eq("count_method", "system")
+    .order("counted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data: before } = await admin
+    .from("vendor_product_warehouses")
+    .select("id, reorder_point_cases")
+    .eq("vendor_product_id", vendorProductId)
+    .eq("location_id", loc!.location_id)
+    .maybeSingle();
 
   try {
     await setFloor(page, "123", "123");
+    // The write must be REAL, not just optimistic UI state.
+    const { data: after } = await admin
+      .from("vendor_product_warehouses")
+      .select("reorder_point_cases")
+      .eq("vendor_product_id", vendorProductId)
+      .eq("location_id", loc!.location_id)
+      .maybeSingle();
+    expect(after?.reorder_point_cases).toBe(123);
   } finally {
-    // Restore the original value even if the assertion failed.
-    await setFloor(page, originalValue, original);
+    if (before) {
+      await admin
+        .from("vendor_product_warehouses")
+        .update({ reorder_point_cases: before.reorder_point_cases })
+        .eq("id", before.id);
+    } else {
+      await admin
+        .from("vendor_product_warehouses")
+        .update({ reorder_point_cases: null })
+        .eq("vendor_product_id", vendorProductId)
+        .eq("location_id", loc!.location_id);
+    }
   }
 });
 
