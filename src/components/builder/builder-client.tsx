@@ -31,6 +31,8 @@ import type { CatalogStatusByVendorId } from "@/lib/catalog/status";
 interface BuilderClientProps {
   catalog: VendorCatalog;
   customerName: string;
+  /** Staff accounts get an Admin item in the header account menu. */
+  isAdmin?: boolean;
   otherCatalogs: CatalogSummary[];
   /** Per-catalog status badges for the header dropdown + submit-and-continue. */
   otherCatalogStatus?: CatalogStatusByVendorId;
@@ -47,6 +49,7 @@ const AUTOSAVE_DEBOUNCE_MS = 1000;
 export function BuilderClient({
   catalog,
   customerName,
+  isAdmin = false,
   otherCatalogs,
   otherCatalogStatus = {},
   initialQtys = {},
@@ -123,6 +126,7 @@ export function BuilderClient({
         <BuilderHeader
           catalog={catalog}
           customerName={customerName}
+          isAdmin={isAdmin}
           otherCatalogs={otherCatalogs}
           otherCatalogStatus={otherCatalogStatus}
         />
@@ -148,6 +152,7 @@ export function BuilderClient({
       <BuilderHeader
         catalog={catalog}
         customerName={customerName}
+        isAdmin={isAdmin}
         otherCatalogs={otherCatalogs}
         otherCatalogStatus={otherCatalogStatus}
       />

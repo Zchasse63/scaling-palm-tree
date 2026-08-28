@@ -18,9 +18,11 @@ interface CatalogsViewProps {
   catalogs: CatalogSummary[];
   /** Slug → most-recent-order summary for that catalog. Optional. */
   lastOrderBySlug?: Map<string, LastOrderForCatalog>;
+  /** Staff accounts get a link into /admin (same treatment as /orders). */
+  isAdmin?: boolean;
 }
 
-export function CatalogsView({ customerName, catalogs, lastOrderBySlug }: CatalogsViewProps) {
+export function CatalogsView({ customerName, catalogs, lastOrderBySlug, isAdmin }: CatalogsViewProps) {
   const totalOrders = lastOrderBySlug?.size ?? 0;
   return (
     <div className="paper-bg" style={{ minHeight: "100vh" }}>
@@ -43,6 +45,19 @@ export function CatalogsView({ customerName, catalogs, lastOrderBySlug }: Catalo
           <Wordmark height={32} />
           <div className="flex items-center" style={{ gap: 18 }}>
             <div className="mono t-cap" style={{ color: "var(--warm)" }}>{customerName}</div>
+            {isAdmin ? (
+              <Link
+                href="/admin"
+                className="mono t-cap"
+                style={{
+                  color: "var(--warm)",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+              >
+                Admin →
+              </Link>
+            ) : null}
             <SignOutButton
               ariaLabel="Sign out"
               className="flex items-center justify-center"

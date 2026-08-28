@@ -17,6 +17,7 @@ import type { CatalogStatusByVendorId } from "@/lib/catalog/status";
 interface BuilderHeaderProps {
   catalog: VendorCatalog;
   customerName: string;
+  isAdmin?: boolean;
   otherCatalogs: CatalogSummary[];
   otherCatalogStatus?: CatalogStatusByVendorId;
 }
@@ -36,6 +37,7 @@ function relativeDate(iso: string | undefined): string | null {
 export function BuilderHeader({
   catalog,
   customerName,
+  isAdmin = false,
   otherCatalogs,
   otherCatalogStatus = {},
 }: BuilderHeaderProps) {
@@ -267,6 +269,22 @@ export function BuilderHeader({
               >
                 Order history
               </Link>
+              {isAdmin ? (
+                <Link
+                  href="/admin"
+                  className="row-hover"
+                  style={{
+                    padding: "10px 14px",
+                    display: "block",
+                    borderBottom: "1px solid var(--rule)",
+                    textDecoration: "none",
+                    color: "inherit",
+                  }}
+                  onClick={() => setAcctOpen(false)}
+                >
+                  Admin dashboard
+                </Link>
+              ) : null}
               <form
                 method="POST"
                 action="/signout"

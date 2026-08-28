@@ -51,6 +51,7 @@ export default async function HomePage({ searchParams }: HomeProps) {
         customerName={session.customerName}
         catalogs={allCatalogs}
         lastOrderBySlug={lastOrderBySlug}
+        isAdmin={session.isAdmin}
       />
     );
   }
@@ -128,6 +129,7 @@ export default async function HomePage({ searchParams }: HomeProps) {
     <BuilderClient
       catalog={catalog}
       customerName={session.customerName}
+      isAdmin={session.isAdmin}
       otherCatalogs={allCatalogs}
       otherCatalogStatus={statusByVendorId}
       initialQtys={initialQtys}
