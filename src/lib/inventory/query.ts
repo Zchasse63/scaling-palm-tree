@@ -12,12 +12,16 @@ import {
   computeOrdersOpen,
   computeStaleness,
   computeVelocity,
+  consumptionStats,
   coverWeeks,
+  customerCadences,
   etDayKey,
   finiteOrNull,
   missingReportDays,
   reconcileFlag,
   addDays,
+  type ConsumptionStats,
+  type CustomerCadence,
 } from "./calc";
 import {
   DEFAULT_LEAD_TIME_DAYS,
@@ -58,6 +62,7 @@ export interface InventoryRow {
   vendorProductId: string;
   sku: string;
   description: string;
+  category: string | null;
   inactive: boolean;
   hasHistory: boolean;
   notYetReceived: boolean;
@@ -81,12 +86,22 @@ export interface InventoryRow {
   leadTimeDays: number | null; // null renders "70 (default)"
 }
 
+export interface CategoryRollup {
+  name: string; // "Uncategorized" for SKUs without a category
+  skus: number;
+  cases: number; // physical
+  valueAtCost: number;
+}
+
 export interface InventoryDashboardData {
   rows: InventoryRow[];
   feed: FeedHealth;
   nextArrival: { eta: string; containerNo: string | null; cases: number } | null;
   inboundTotalCases: number;
   todayKey: string;
+  categories: CategoryRollup[];
+  /** Per-customer reorder cadence from real orders; empty until orders flow. */
+  expectedOrders: CustomerCadence[];
 }
 
 export interface SkuDetailData {
@@ -121,6 +136,15 @@ export interface SkuDetailData {
    * pipeline.
    */
   dnRefs: Record<string, { subject: string; day: string; customer: string | null }>;
+  stats: ConsumptionStats;
+  costHistory: Array<{
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    costPerCase: number;
+    source: string | null;
+  }>;
+  /** Order-line co-occurrence: items on the same orders as this SKU. Empty until orders flow. */
+  boughtWith: Array<{ sku: string; description: string | null; orders: number; cases: number }>;
 }
 
 export interface InboundShipmentView {
@@ -375,6 +399,7 @@ interface VendorProductInfo {
   packDisplay: string | null;
   casesPerPallet: number | null;
   caseWeightLb: number | null;
+  category: string | null;
 }
 
 async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, VendorProductInfo>> {
@@ -385,10 +410,12 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
   // hand-typed vendor_products Row — cast per codebase convention.
   const { data, error } = await admin
     .from("vendor_products" as never)
-    .select("id, sku, description, pack_display, cases_per_pallet, case_weight_lb, is_active, deleted_at")
+    .select(
+      "id, sku, description, pack_display, cases_per_pallet, case_weight_lb, is_active, deleted_at, canonical_product_id",
+    )
     .in("id", ids);
   if (error) throw new Error("vendor products fetch failed: " + error.message);
-  for (const vp of (data ?? []) as Array<{
+  const vps = (data ?? []) as Array<{
     id: string;
     sku: string;
     description: string;
@@ -397,7 +424,37 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
     case_weight_lb: number | null;
     is_active: boolean;
     deleted_at: string | null;
-  }>) {
+    canonical_product_id: string | null;
+  }>;
+
+  // Resolve categories: vendor_product -> canonical_product -> product_category.
+  const canonicalIds = Array.from(
+    new Set(vps.map((v) => v.canonical_product_id).filter((x): x is string => x !== null)),
+  );
+  const categoryByCanonical = new Map<string, string>();
+  if (canonicalIds.length > 0) {
+    const { data: canon } = await admin
+      .from("canonical_products" as never)
+      .select("id, category_id")
+      .in("id", canonicalIds);
+    const canonRows = (canon ?? []) as Array<{ id: string; category_id: string | null }>;
+    const catIds = Array.from(
+      new Set(canonRows.map((c) => c.category_id).filter((x): x is string => x !== null)),
+    );
+    const { data: cats } = catIds.length
+      ? await admin.from("product_categories" as never).select("id, name").in("id", catIds)
+      : { data: [] };
+    const nameById = new Map(
+      ((cats ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name]),
+    );
+    for (const c of canonRows) {
+      if (c.category_id && nameById.has(c.category_id)) {
+        categoryByCanonical.set(c.id, nameById.get(c.category_id)!);
+      }
+    }
+  }
+
+  for (const vp of vps) {
     out.set(vp.id, {
       id: vp.id,
       sku: vp.sku,
@@ -406,6 +463,9 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
       packDisplay: vp.pack_display,
       casesPerPallet: vp.cases_per_pallet,
       caseWeightLb: vp.case_weight_lb === null ? null : Number(vp.case_weight_lb),
+      category: vp.canonical_product_id
+        ? categoryByCanonical.get(vp.canonical_product_id) ?? null
+        : null,
     });
   }
   return out;
@@ -577,6 +637,7 @@ export async function fetchInventoryDashboard(nowIso: string): Promise<Inventory
       vendorProductId: id,
       sku: vp.sku,
       description: vp.description,
+      category: vp.category,
       inactive: vp.inactive,
       hasHistory,
       notYetReceived: !hasHistory,
@@ -616,13 +677,72 @@ export async function fetchInventoryDashboard(nowIso: string): Promise<Inventory
       }
     : null;
 
+  const catMap = new Map<string, CategoryRollup>();
+  for (const r of rows) {
+    const name = r.category ?? "Uncategorized";
+    const e = catMap.get(name) ?? { name, skus: 0, cases: 0, valueAtCost: 0 };
+    e.skus += 1;
+    e.cases += r.onHand;
+    e.valueAtCost += r.valueAtCost ?? 0;
+    catMap.set(name, e);
+  }
+  const categories = Array.from(catMap.values()).sort(
+    (a, b) => b.valueAtCost - a.valueAtCost,
+  );
+
+  const expectedOrders = customerCadences(await fetchOrderLineFacts(), todayKey);
+
   return {
     rows,
     feed,
     nextArrival,
     inboundTotalCases: inboundLines.reduce((s, l) => s + l.qtyCases, 0),
     todayKey,
+    categories,
+    expectedOrders,
   };
+}
+
+/**
+ * Every real order line as a (customer, day, sku, cases) fact for the
+ * expected-orders cadence engine. Non-METRO, non-cancelled orders only.
+ */
+async function fetchOrderLineFacts(): Promise<
+  Array<{ customerName: string; day: string; sku: string; cases: number }>
+> {
+  const admin = adminClient();
+  const { data: orders } = await admin
+    .from("customer_orders")
+    .select("id, customer_id, quoted_at")
+    .or("order_number.is.null,order_number.not.like.METRO-%")
+    .neq("status", "cancelled")
+    .limit(1000);
+  if (!orders || orders.length === 0) return [];
+
+  const [{ data: lines }, { data: customers }] = await Promise.all([
+    admin
+      .from("customer_order_lines")
+      .select("order_id, sku, qty_cases")
+      .in(
+        "order_id",
+        orders.map((o) => o.id),
+      ),
+    admin
+      .from("companies")
+      .select("id, name")
+      .in("id", Array.from(new Set(orders.map((o) => o.customer_id)))),
+  ]);
+  const nameById = new Map((customers ?? []).map((c) => [c.id, c.name]));
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+  return (lines ?? []).map((l) => {
+    const o = orderById.get(l.order_id)!;
+    return {
+      customerName: nameById.get(o.customer_id) ?? "unknown",
+      day: etDayKey(o.quoted_at),
+      sku: l.sku ?? "unknown",
+      cases: l.qty_cases,
+    };
+  });
 }
 
 export async function fetchSkuDetail(
@@ -665,6 +785,23 @@ export async function fetchSkuDetail(
   );
   const dnRefs = await fetchDnRefs(admin, dnTokens);
 
+  const stats = consumptionStats(buildMovement(series), todayKey);
+
+  const { data: costRows } = await admin
+    .from("vendor_costs")
+    .select("effective_from, effective_to, cost_per_case, source")
+    .eq("vendor_product_id", vendorProductId)
+    .order("effective_from", { ascending: false })
+    .limit(20);
+  const costHistory = (costRows ?? []).map((c) => ({
+    effectiveFrom: c.effective_from,
+    effectiveTo: c.effective_to,
+    costPerCase: Number(c.cost_per_case),
+    source: c.source,
+  }));
+
+  const boughtWith = await fetchBoughtWith(admin, vendorProductId);
+
   const vp = info.get(vendorProductId);
   return {
     row,
@@ -685,7 +822,60 @@ export async function fetchSkuDetail(
     feed: dashboard.feed,
     todayKey,
     dnRefs,
+    stats,
+    costHistory,
+    boughtWith,
   };
+}
+
+/** Items appearing on the same (real) orders as this SKU, by co-occurrence. */
+async function fetchBoughtWith(
+  admin: ReturnType<typeof adminClient>,
+  vendorProductId: string,
+): Promise<SkuDetailData["boughtWith"]> {
+  const { data: myLines } = await admin
+    .from("customer_order_lines")
+    .select("order_id")
+    .eq("vendor_product_id", vendorProductId);
+  const orderIds = Array.from(new Set((myLines ?? []).map((l) => l.order_id)));
+  if (orderIds.length === 0) return [];
+
+  const { data: orders } = await admin
+    .from("customer_orders")
+    .select("id")
+    .in("id", orderIds)
+    .or("order_number.is.null,order_number.not.like.METRO-%")
+    .neq("status", "cancelled");
+  const realOrderIds = (orders ?? []).map((o) => o.id);
+  if (realOrderIds.length === 0) return [];
+
+  const { data: siblings } = await admin
+    .from("customer_order_lines")
+    .select("order_id, vendor_product_id, sku, description, qty_cases")
+    .in("order_id", realOrderIds)
+    .neq("vendor_product_id", vendorProductId);
+
+  const byVp = new Map<
+    string,
+    { sku: string; description: string | null; orderIds: Set<string>; cases: number }
+  >();
+  for (const l of siblings ?? []) {
+    const key = l.vendor_product_id ?? l.sku ?? "unknown";
+    const e =
+      byVp.get(key) ?? {
+        sku: l.sku ?? "unknown",
+        description: l.description,
+        orderIds: new Set<string>(),
+        cases: 0,
+      };
+    e.orderIds.add(l.order_id);
+    e.cases += l.qty_cases;
+    byVp.set(key, e);
+  }
+  return Array.from(byVp.values())
+    .map((e) => ({ sku: e.sku, description: e.description, orders: e.orderIds.size, cases: e.cases }))
+    .sort((a, b) => b.orders - a.orders || b.cases - a.cases)
+    .slice(0, 10);
 }
 
 /**

@@ -9,7 +9,9 @@ import {
   computeOrdersOpen,
   computeStaleness,
   computeVelocity,
+  consumptionStats,
   coverWeeks,
+  customerCadences,
   etDayKey,
   finiteOrNull,
   fmtEtStamp,
@@ -334,6 +336,63 @@ describe("projectRunway", () => {
     });
     // 300 - 10/day: crosses below 240 on day +7 (value 230)
     expect(r.floorCrossDay).toBe("2026-09-08");
+  });
+});
+
+describe("consumptionStats", () => {
+  it("totals, peak draw, and days since movement", () => {
+    const m = buildMovement(
+      buildDailySeries([
+        snap("2026-08-01", 500),
+        snap("2026-08-05", 450),
+        snap("2026-08-10", 240),
+        snap("2026-08-20", 240),
+      ]),
+    );
+    const st = consumptionStats(m, "2026-08-27");
+    expect(st.totalConsumed).toBe(260);
+    expect(st.peakDraw).toEqual({ day: "2026-08-10", cases: 210 });
+    expect(st.firstObservedDay).toBe("2026-08-01");
+    expect(st.daysSinceMovement).toBe(17);
+  });
+});
+
+describe("customerCadences", () => {
+  const line = (customerName: string, day: string, sku = "SKU-A", cases = 10) => ({
+    customerName,
+    day,
+    sku,
+    cases,
+  });
+  it("computes median gap and due-in from 3+ order days, most overdue first", () => {
+    const out = customerCadences(
+      [
+        // FSD: orders every ~21 days, last on 08-01 -> overdue by 5 on 08-27
+        line("FSD", "2026-06-20"),
+        line("FSD", "2026-07-11"),
+        line("FSD", "2026-08-01"),
+        // Tolteca: only 2 orders -> no cadence yet
+        line("Tolteca", "2026-07-01"),
+        line("Tolteca", "2026-08-01"),
+      ],
+      "2026-08-27",
+    );
+    expect(out[0].customerName).toBe("FSD");
+    expect(out[0].typicalGapDays).toBe(21);
+    expect(out[0].dueInDays).toBe(-5);
+    expect(out[1].customerName).toBe("Tolteca");
+    expect(out[1].dueInDays).toBeNull();
+  });
+  it("ranks usual SKUs by cases", () => {
+    const out = customerCadences(
+      [
+        line("FSD", "2026-08-01", "LID-7", 210),
+        line("FSD", "2026-08-01", "CUP-2", 12),
+        line("FSD", "2026-07-01", "LID-7", 180),
+      ],
+      "2026-08-27",
+    );
+    expect(out[0].usualSkus[0]).toBe("LID-7");
   });
 });
 

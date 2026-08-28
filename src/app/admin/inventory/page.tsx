@@ -11,6 +11,7 @@ import {
 } from "@/lib/inventory/query";
 import type { Bucket } from "@/lib/inventory/types";
 import { FeedStamp } from "@/components/admin/inventory/feed-stamp";
+import { CategorySidebar } from "@/components/admin/inventory/category-sidebar";
 import { BucketTabs, type BucketCounts } from "@/components/admin/inventory/bucket-tabs";
 import {
   InventoryTable,
@@ -70,6 +71,8 @@ interface PageProps {
     sort?: string;
     dir?: string;
     feed?: string;
+    cat?: string;
+    q?: string;
   }>;
 }
 
@@ -78,14 +81,30 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
   const data = await fetchInventoryDashboard(new Date().toISOString());
   const { rows, feed } = data;
 
+  const activeCat = sp.cat ?? null;
+  const q = (sp.q ?? "").trim();
+  const qLower = q.toLowerCase();
+  // Category + search scope first; the status tabs then count within scope.
+  const scoped = rows.filter((r) => {
+    if (activeCat !== null && (r.category ?? "Uncategorized") !== activeCat) return false;
+    if (
+      qLower &&
+      !r.sku.toLowerCase().includes(qLower) &&
+      !r.description.toLowerCase().includes(qLower)
+    ) {
+      return false;
+    }
+    return true;
+  });
+
   const counts: BucketCounts = {
-    stockout: rows.filter((r) => r.bucket === "stockout" || r.bucket === "allocated_out")
+    stockout: scoped.filter((r) => r.bucket === "stockout" || r.bucket === "allocated_out")
       .length,
-    act_now: rows.filter((r) => r.bucket === "act_now").length,
-    watch: rows.filter((r) => r.bucket === "watch").length,
-    excess: rows.filter((r) => r.bucket === "excess").length,
-    no_movement: rows.filter((r) => r.bucket === "no_movement").length,
-    all: rows.length,
+    act_now: scoped.filter((r) => r.bucket === "act_now").length,
+    watch: scoped.filter((r) => r.bucket === "watch").length,
+    excess: scoped.filter((r) => r.bucket === "excess").length,
+    no_movement: scoped.filter((r) => r.bucket === "no_movement").length,
+    all: scoped.length,
   };
 
   const defaultBucket: keyof BucketCounts =
@@ -98,7 +117,7 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
   const dir: "asc" | "desc" = sp.dir === "desc" ? "desc" : "asc";
   const showFeed = sp.feed === "1";
 
-  const filtered = rows.filter((r) => {
+  const filtered = scoped.filter((r) => {
     if (activeBucket === "all") return true;
     if (activeBucket === "stockout") {
       return r.bucket === "stockout" || r.bucket === "allocated_out";
@@ -132,6 +151,8 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
       sort: sort ?? null,
       dir: sort ? dir : null,
       feed: showFeed ? "1" : null,
+      cat: activeCat,
+      q: q || null,
       ...patch,
     };
     for (const [k, v] of Object.entries(merged)) if (v !== null) params.set(k, v);
@@ -154,7 +175,7 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
   );
 
   const actionable = counts.stockout + counts.act_now;
-  const shortest = rows
+  const shortest = scoped
     .filter((r) => r.cover !== null)
     .sort((a, b) => (a.cover ?? 0) - (b.cover ?? 0))[0];
 
@@ -238,31 +259,121 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
           </div>
 
           <div
-            className="flex"
-            style={{ justifyContent: "space-between", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}
+            className="builder-grid"
+            style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, alignItems: "start" }}
           >
-            <BucketTabs
-              counts={counts}
-              active={activeBucket}
-              makeHref={(b) => makeHref({ bucket: b, sort: null, dir: null })}
-            />
-            <InventoryExportButton />
-          </div>
-
-          {actionable === 0 && shortest ? (
-            <div className="mono t-cap" style={{ color: "var(--mid)" }}>
-              Nothing needs action today. Shortest runway: {shortest.sku} at{" "}
-              {coverLabel(shortest).text}.
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <CategorySidebar
+                categories={data.categories}
+                active={activeCat}
+                makeHref={(cat) => makeHref({ cat, sort: null, dir: null })}
+              />
+              {data.expectedOrders.length === 0 ? (
+                <div className="t-micro" style={{ color: "var(--warm)", padding: "0 2px" }}>
+                  Expected orders appear here as order history accumulates.
+                </div>
+              ) : null}
             </div>
-          ) : null}
 
-          <InventoryTable
-            rows={sorted}
-            sort={sort}
-            dir={dir}
-            makeSortHref={makeSortHref}
-            trendLabel={trendLabel}
-          />
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+              {data.expectedOrders.length > 0 ? (
+                <section style={{ background: "white", border: "1px solid var(--rule)" }}>
+                  <div
+                    className="t-eyebrow"
+                    style={{ padding: "10px 16px", background: "var(--paper-2)", borderBottom: "1px solid var(--rule)" }}
+                  >
+                    Expected orders · by customer cadence
+                  </div>
+                  <div style={{ padding: "8px 16px 12px" }}>
+                    {data.expectedOrders.slice(0, 6).map((c) => (
+                      <div
+                        key={c.customerName}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          flexWrap: "wrap",
+                          padding: "6px 0",
+                          borderBottom: "1px solid var(--rule)",
+                          alignItems: "baseline",
+                        }}
+                      >
+                        <span className="t-body">{c.customerName}</span>
+                        <span className="mono t-micro">{c.usualSkus.join(" · ")}</span>
+                        {c.dueInDays === null ? (
+                          <span className="t-micro">
+                            {c.orderCount} order{c.orderCount === 1 ? "" : "s"} · cadence forming
+                          </span>
+                        ) : c.dueInDays < 0 ? (
+                          <span className="chip chip-amber">Overdue {-c.dueInDays}d</span>
+                        ) : (
+                          <span className="mono t-micro">due in {c.dueInDays}d</span>
+                        )}
+                      </div>
+                    ))}
+                    <div className="t-micro" style={{ marginTop: 6, color: "var(--warm)" }}>
+                      Reorder calendar from real order gaps (median, 3+ orders). Not a forecast.
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              <div
+                className="flex"
+                style={{ justifyContent: "space-between", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}
+              >
+                <BucketTabs
+                  counts={counts}
+                  active={activeBucket}
+                  makeHref={(b) => makeHref({ bucket: b, sort: null, dir: null })}
+                />
+                <div className="flex" style={{ gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <form action="/admin/inventory" method="get" className="flex" style={{ gap: 0 }}>
+                    {activeBucket ? <input type="hidden" name="bucket" value={activeBucket} /> : null}
+                    {activeCat ? <input type="hidden" name="cat" value={activeCat} /> : null}
+                    <input
+                      type="search"
+                      name="q"
+                      defaultValue={q}
+                      placeholder="Search SKU or description"
+                      aria-label="Search inventory"
+                      className="input"
+                      style={{ height: 32, width: 220, fontSize: 12 }}
+                    />
+                  </form>
+                  <InventoryExportButton />
+                </div>
+              </div>
+
+              {actionable === 0 && shortest ? (
+                <div className="mono t-cap" style={{ color: "var(--mid)" }}>
+                  Nothing needs action{activeCat || q ? " in this view" : " today"}. Shortest
+                  runway: {shortest.sku} at {coverLabel(shortest).text}.
+                </div>
+              ) : null}
+
+              {sorted.length === 0 ? (
+                <section
+                  style={{
+                    background: "white",
+                    border: "1px solid var(--rule)",
+                    padding: "36px 24px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div className="mono t-cap">No SKUs match this view.</div>
+                </section>
+              ) : (
+                <InventoryTable
+                  rows={sorted}
+                  sort={sort}
+                  dir={dir}
+                  makeSortHref={makeSortHref}
+                  trendLabel={trendLabel}
+                />
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>

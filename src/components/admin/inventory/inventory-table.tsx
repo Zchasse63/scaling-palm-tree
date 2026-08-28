@@ -9,7 +9,7 @@ import type { InventoryRow } from "@/lib/inventory/query";
 import { InvBadge, ReconcileFlag } from "./inv-badge";
 import { Sparkline } from "./sparkline";
 
-export const GRID = "140px minmax(220px,1fr) 76px 72px 72px 80px 76px 96px 60px 116px";
+export const GRID = "132px minmax(170px,1fr) 72px 64px 64px 76px 68px 90px 60px 84px 110px";
 
 export type SortKey =
   | "sku"
@@ -36,6 +36,7 @@ const HEADERS: Array<{
   { key: "inbound", label: "Inbound", align: "right", cls: "inv-c-inbound" },
   { key: "cover", label: "Cover", align: "right", cls: "inv-c-cover" },
   { key: null, label: "Trend", align: "right", cls: "inv-hide-mobile" },
+  { key: "value", label: "Value", align: "right", cls: "inv-c-value" },
   { key: null, label: "Status", align: "left", cls: "inv-c-status" },
 ];
 
@@ -86,8 +87,9 @@ export function InventoryTable({
       orders: t.orders + r.ordersOpen,
       avail: t.avail + r.available,
       inbound: t.inbound + r.inbound,
+      value: t.value + (r.valueAtCost ?? 0),
     }),
-    { onHand: 0, staged: 0, orders: 0, avail: 0, inbound: 0 },
+    { onHand: 0, staged: 0, orders: 0, avail: 0, inbound: 0, value: 0 },
   );
 
   return (
@@ -98,7 +100,7 @@ export function InventoryTable({
         style={{
           display: "grid",
           gridTemplateColumns: GRID,
-          gap: 14,
+          gap: 12,
           padding: "10px 18px",
           background: "var(--paper-2)",
           borderBottom: "1px solid var(--rule)",
@@ -149,7 +151,7 @@ export function InventoryTable({
             style={{
               display: "grid",
               gridTemplateColumns: GRID,
-              gap: 14,
+              gap: 12,
               padding: "12px 18px",
               borderBottom: "1px solid var(--rule)",
               alignItems: "center",
@@ -241,6 +243,12 @@ export function InventoryTable({
                 label={`Weekly consumption, trailing ${trendLabel}`}
               />
             </div>
+            <div className="inv-c-value" style={{ textAlign: "right" }}>
+              <span className="inv-label t-eyebrow">Value</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--mid)" }}>
+                {r.valueAtCost === null ? "—" : "$" + fmtInt(Math.round(r.valueAtCost))}
+              </span>
+            </div>
             <div className="inv-c-status">
               <span className="inv-label t-eyebrow">Status</span>
               <InvBadge bucket={r.bucket} />
@@ -265,7 +273,7 @@ export function InventoryTable({
         style={{
           display: "grid",
           gridTemplateColumns: GRID,
-          gap: 14,
+          gap: 12,
           padding: "10px 18px",
           borderTop: "1px solid var(--rule-strong)",
           background: "var(--paper-2)",
@@ -281,6 +289,11 @@ export function InventoryTable({
         <div style={{ textAlign: "right" }}>{numCell(totals.inbound)}</div>
         <div />
         <div />
+        <div style={{ textAlign: "right" }}>
+          <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>
+            {"$" + fmtInt(Math.round(totals.value))}
+          </span>
+        </div>
         <div />
       </div>
     </section>

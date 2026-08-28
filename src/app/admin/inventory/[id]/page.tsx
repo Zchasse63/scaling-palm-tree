@@ -142,6 +142,46 @@ export default async function SkuDetailPage({ params }: PageProps) {
         ))}
       </div>
 
+      {/* lifetime stats */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 14,
+        }}
+      >
+        {(
+          [
+            ["First received", detail.stats.firstObservedDay ? fmtDayShort(detail.stats.firstObservedDay) : "—"],
+            ["Total shipped", `${fmtInt(detail.stats.totalConsumed)} cs`],
+            [
+              "Peak draw",
+              detail.stats.peakDraw
+                ? `${fmtInt(detail.stats.peakDraw.cases)} cs · ${fmtDayShort(detail.stats.peakDraw.day)}`
+                : "—",
+            ],
+            [
+              "Last movement",
+              detail.stats.daysSinceMovement === null
+                ? "none yet"
+                : detail.stats.daysSinceMovement === 0
+                  ? "today"
+                  : `${detail.stats.daysSinceMovement}d ago`,
+            ],
+          ] as Array<[string, string]>
+        ).map(([label, v]) => (
+          <div
+            key={label}
+            style={{ background: "white", border: "1px solid var(--rule)", padding: "10px 14px" }}
+          >
+            <div className="t-eyebrow">{label}</div>
+            <div className="mono" style={{ fontSize: 14, fontWeight: 500, marginTop: 3 }}>
+              {v}
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* runway */}
       <section style={{ background: "white", border: "1px solid var(--rule)" }}>
         <SectionBar as="h2" meta={cover.text !== "—" ? `cover ${cover.text}` : undefined}>
@@ -338,6 +378,41 @@ export default async function SkuDetailPage({ params }: PageProps) {
             </div>
           </section>
 
+          {/* bought with: order-line co-occurrence, real orders only */}
+          <section style={{ background: "white", border: "1px solid var(--rule)" }}>
+            <SectionBar as="h2">Usually bought with</SectionBar>
+            <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {detail.boughtWith.length === 0 ? (
+                <div className="t-micro">
+                  Appears as order history accumulates: items that ship on the same
+                  orders as this SKU.
+                </div>
+              ) : (
+                detail.boughtWith.map((b) => (
+                  <div
+                    key={b.sku}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "130px 1fr auto",
+                      gap: 12,
+                      borderBottom: "1px solid var(--rule)",
+                      paddingBottom: 6,
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <span className="mono" style={{ fontSize: 12, fontWeight: 500 }}>
+                      {b.sku}
+                    </span>
+                    <span className="t-micro">{b.description ?? ""}</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--mid)" }}>
+                      {b.orders} order{b.orders === 1 ? "" : "s"} · {fmtInt(b.cases)} cs
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
           {/* settings in place */}
           <section style={{ background: "white", border: "1px solid var(--rule)" }}>
             <SectionBar as="h2">Replenishment settings</SectionBar>
@@ -367,6 +442,49 @@ export default async function SkuDetailPage({ params }: PageProps) {
                 Click a value to edit. Enter saves, Esc cancels. These drive the Act now
                 and Watch statuses.
               </div>
+            </div>
+          </section>
+
+          {/* cost history (internal) */}
+          <section style={{ background: "white", border: "1px solid var(--rule)" }}>
+            <SectionBar as="h2" meta="internal">
+              Cost history
+            </SectionBar>
+            <div style={{ padding: "10px 18px 14px" }}>
+              {detail.costHistory.length === 0 ? (
+                <div className="t-micro" style={{ paddingTop: 6 }}>
+                  No cost records for this SKU.
+                </div>
+              ) : (
+                detail.costHistory.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto auto",
+                      gap: 12,
+                      padding: "6px 0",
+                      borderBottom: "1px solid var(--rule)",
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <span className="mono" style={{ fontSize: 12 }}>
+                      {fmtDayShort(c.effectiveFrom.slice(0, 10))}
+                      {" → "}
+                      {c.effectiveTo ? fmtDayShort(c.effectiveTo.slice(0, 10)) : "current"}
+                    </span>
+                    <span
+                      className="mono"
+                      style={{ fontSize: 12, fontWeight: c.effectiveTo === null ? 600 : 400, textAlign: "right" }}
+                    >
+                      {fmtMoneyPos(c.costPerCase)}/cs
+                    </span>
+                    <span className="t-micro" style={{ textAlign: "right" }}>
+                      {c.source ?? ""}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         </div>

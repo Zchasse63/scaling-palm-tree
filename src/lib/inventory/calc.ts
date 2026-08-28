@@ -255,6 +255,106 @@ export function computeBucket(a: BucketArgs): Bucket {
   return "healthy";
 }
 
+// ---------------------------------------------------------------- item stats
+
+export interface ConsumptionStats {
+  totalConsumed: number;
+  peakDraw: { day: string; cases: number } | null;
+  firstObservedDay: string | null;
+  lastMovementDay: string | null; // last day with any consumption
+  daysSinceMovement: number | null;
+}
+
+/** Lifetime consumption statistics for the item profile. Pure. */
+export function consumptionStats(
+  movement: MovementDay[],
+  todayKey: string,
+): ConsumptionStats {
+  let totalConsumed = 0;
+  let peakDraw: ConsumptionStats["peakDraw"] = null;
+  let lastMovementDay: string | null = null;
+  for (const m of movement) {
+    totalConsumed += m.consumption;
+    if (m.consumption > 0) {
+      // movement is chronological; the latest hit wins
+      lastMovementDay = m.day;
+      if (!peakDraw || m.consumption > peakDraw.cases) {
+        peakDraw = { day: m.day, cases: m.consumption };
+      }
+    }
+  }
+  return {
+    totalConsumed,
+    peakDraw,
+    firstObservedDay: movement.length > 0 ? movement[0].day : null,
+    lastMovementDay,
+    daysSinceMovement: lastMovementDay ? dayDiff(lastMovementDay, todayKey) : null,
+  };
+}
+
+// ---------------------------------------------------------------- cadence
+
+export interface CustomerCadence {
+  customerName: string;
+  orderCount: number;
+  lastOrderDay: string;
+  typicalGapDays: number | null; // median gap; needs 3+ distinct order days
+  /** negative = overdue by that many days; null when no cadence yet */
+  dueInDays: number | null;
+  usualSkus: string[]; // top by cases
+}
+
+/**
+ * Expected-order engine: per-customer reorder cadence from real order days.
+ * Median gap needs 3+ distinct order days; due = lastOrder + gap − today.
+ * No statistical forecasting — this is the operator's reorder calendar,
+ * exactly the lumpy-demand doctrine from the research.
+ */
+export function customerCadences(
+  orders: Array<{ customerName: string; day: string; sku: string; cases: number }>,
+  todayKey: string,
+): CustomerCadence[] {
+  const byCustomer = new Map<
+    string,
+    { days: Set<string>; skuCases: Map<string, number> }
+  >();
+  for (const o of orders) {
+    const e =
+      byCustomer.get(o.customerName) ?? { days: new Set(), skuCases: new Map() };
+    e.days.add(o.day);
+    e.skuCases.set(o.sku, (e.skuCases.get(o.sku) ?? 0) + o.cases);
+    byCustomer.set(o.customerName, e);
+  }
+  const out: CustomerCadence[] = [];
+  for (const [customerName, e] of byCustomer) {
+    const days = Array.from(e.days).sort();
+    const last = days[days.length - 1];
+    let typicalGapDays: number | null = null;
+    if (days.length >= 3) {
+      const gaps = days.slice(1).map((d, i) => dayDiff(days[i], d));
+      gaps.sort((a, b) => a - b);
+      typicalGapDays = gaps[Math.floor(gaps.length / 2)];
+    }
+    const dueInDays =
+      typicalGapDays !== null
+        ? typicalGapDays - dayDiff(last, todayKey)
+        : null;
+    out.push({
+      customerName,
+      orderCount: days.length,
+      lastOrderDay: last,
+      typicalGapDays,
+      dueInDays,
+      usualSkus: Array.from(e.skuCases.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([sku]) => sku),
+    });
+  }
+  // Most overdue first; customers without a cadence yet sink to the bottom.
+  return out.sort((a, b) => (a.dueInDays ?? 9e9) - (b.dueInDays ?? 9e9));
+}
+
 // ---------------------------------------------------------------- freshness
 
 export function computeStaleness(nowIso: string, latestCountedAt: string | null): {
