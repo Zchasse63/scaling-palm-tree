@@ -20,8 +20,9 @@ export const dynamic = "force-dynamic";
 
 const STATUS_LABEL: Record<string, string> = {
   ordered: "Ordered",
-  on_water: "On water",
+  in_transit: "In transit",
   arrived: "Arrived",
+  received: "Received",
 };
 
 export default async function InboundPage() {

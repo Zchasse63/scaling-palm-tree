@@ -115,7 +115,7 @@ export async function updateInboundShipmentAction(input: {
     await requireAdmin();
     const dateErr = validateDates(input.etd, input.eta);
     if (dateErr) return { ok: false, error: dateErr };
-    const allowed = ["ordered", "on_water", "arrived"];
+    const allowed = ["ordered", "in_transit", "arrived", "received"];
     if (!allowed.includes(input.status)) {
       return { ok: false, error: `Invalid status: ${input.status}` };
     }
@@ -149,7 +149,7 @@ export async function markInboundReceivedAction(input: {
 
     const { error } = await admin
       .from("inbound_shipments")
-      .update({ received_at: new Date().toISOString(), status: "arrived" })
+      .update({ received_at: new Date().toISOString(), status: "received" })
       .eq("id", input.shipmentId);
     if (error) return { ok: false, error: error.message };
 

@@ -353,7 +353,7 @@ export function ShipmentActions({
             aria-label="Status"
           >
             <option value="ordered">ordered</option>
-            <option value="on_water">on water</option>
+            <option value="in_transit">in transit</option>
             <option value="arrived">arrived</option>
           </select>
           <input
