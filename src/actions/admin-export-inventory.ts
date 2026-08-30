@@ -5,6 +5,7 @@
 // Blob download. Re-checks admin on every call.
 
 import { requireAdmin } from "@/lib/auth/session";
+import { etDayKey } from "@/lib/inventory/calc";
 import { fetchInventoryDashboard } from "@/lib/inventory/query";
 
 export interface ExportInventoryResult {
@@ -15,7 +16,13 @@ export interface ExportInventoryResult {
 }
 
 function csvEscape(v: string | number | null): string {
-  const s = v === null ? "" : String(v);
+  if (v === null) return "";
+  let s = String(v);
+  // Spreadsheet formula-injection guard: a text cell starting with =, +, -, @,
+  // tab, or CR would execute as a formula when opened in Excel. Prefix with a
+  // quote to force literal text. Numeric values skip this so negatives stay
+  // numbers.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
@@ -64,11 +71,10 @@ export async function exportInventoryAsCsvAction(): Promise<ExportInventoryResul
           .join(","),
       );
 
-    // Filename dates are MM-DD-YYYY per workspace convention.
-    const now = new Date();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const stamp = `${mm}-${dd}-${now.getFullYear()}`;
+    // Filename dates are MM-DD-YYYY per workspace convention, on the
+    // America/New_York calendar (the server runs in UTC).
+    const [yyyy, mm, dd] = etDayKey(new Date().toISOString()).split("-");
+    const stamp = `${mm}-${dd}-${yyyy}`;
     return {
       ok: true,
       csv: [header.join(","), ...body].join("\n"),

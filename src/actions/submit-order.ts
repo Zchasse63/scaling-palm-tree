@@ -12,7 +12,7 @@
 import { adminClient } from "@/lib/supabase/admin";
 import { requireSession } from "@/lib/auth/session";
 import {
-  fetchCatalogForVendor,
+  fetchCatalogForVendorWithPricing,
   verifyCustomerCatalogAccess,
 } from "@/lib/catalog/query";
 import { computeTotals, type QtyMap } from "@/lib/math/fill";
@@ -85,11 +85,17 @@ export async function submitOrderAction(
 
     // Re-fetch catalog server-side to lock in real prices and verify totals.
     // Pass the customer's verified access info so container/terms + the
-    // customer's effective margin come from THIS customer's row.
-    const catalog = await fetchCatalogForVendor(session.customerId, input.vendorId, access);
-    if (!catalog) {
+    // customer's effective margin come from THIS customer's row. Cost and
+    // margin arrive in a separate server-only map, never on the catalog.
+    const fetched = await fetchCatalogForVendorWithPricing(
+      session.customerId,
+      input.vendorId,
+      access,
+    );
+    if (!fetched) {
       return { ok: false, error: "Catalog could not be loaded." };
     }
+    const { catalog, pricing } = fetched;
 
     // Recompute totals from server-side catalog data + submitted qtys.
     const totals = computeTotals(catalog, input.qtys);
@@ -152,7 +158,8 @@ export async function submitOrderAction(
     for (const [vpId, qty] of Object.entries(input.qtys)) {
       if (!qty || qty <= 0) continue;
       const sku = skuByVpId.get(vpId);
-      if (!sku) {
+      const skuPricing = pricing.get(vpId);
+      if (!sku || !skuPricing) {
         return { ok: false, error: `Unknown SKU in submission: ${vpId}` };
       }
       lines.push({
@@ -163,8 +170,8 @@ export async function submitOrderAction(
         pack_size: sku.packDisplay,
         cases_per_pallet: sku.casesPerPallet,
         qty_cases: qty,
-        vendor_cost_per_case: sku.costPerCase,
-        margin_pct_applied: sku.marginPct ?? 0.18,
+        vendor_cost_per_case: skuPricing.costPerCase,
+        margin_pct_applied: skuPricing.marginPct ?? 0.18,
         freight_per_case: 0,
         sell_price_per_case: sku.sellPricePerCase,
       });

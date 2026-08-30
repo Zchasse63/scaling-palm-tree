@@ -15,6 +15,7 @@ import { adminClient } from "@/lib/supabase/admin";
 import type {
   CatalogCategory,
   CatalogSku,
+  CatalogSkuPricing,
   CatalogSummary,
   VendorCatalog,
 } from "./types";
@@ -167,15 +168,31 @@ export async function verifyCustomerCatalogAccess(
 /**
  * Full catalog payload for the builder page.
  *
- * Caller passes the customer ID + verified access info. The function applies
- * layered margin resolution: per-customer + per-vendor override > customer-wide
- * override > vendor default > 0.20 fallback.
+ * Returns ONLY customer-safe fields — no cost, no margin. The builder page
+ * serializes this object into the client payload, so anything on it is
+ * readable in the customer's browser.
  */
 export async function fetchCatalogForVendor(
   customerId: string,
   vendorId: string,
   access: CatalogAccess,
 ): Promise<VendorCatalog | null> {
+  const result = await fetchCatalogForVendorWithPricing(customerId, vendorId, access);
+  return result?.catalog ?? null;
+}
+
+/**
+ * Catalog + internal pricing, for server-side consumers only (order submit).
+ * The pricing map (cost + effective margin per vendor_product_id) is kept
+ * outside VendorCatalog so it can never ride along into a client payload.
+ * Margin resolution: per-customer + per-vendor override > customer-wide
+ * override > vendor default > 0.20 fallback (applied by the RPC).
+ */
+export async function fetchCatalogForVendorWithPricing(
+  customerId: string,
+  vendorId: string,
+  access: CatalogAccess,
+): Promise<{ catalog: VendorCatalog; pricing: Map<string, CatalogSkuPricing> } | null> {
   const admin = adminClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -192,6 +209,7 @@ export async function fetchCatalogForVendor(
 
   // Group rows into categories. Order: by category_name asc (stable + readable).
   const byCategory = new Map<string, CatalogCategory>();
+  const pricing = new Map<string, CatalogSkuPricing>();
   for (const r of rows) {
     const key = r.category_id ?? "_uncategorized";
     let bucket = byCategory.get(key);
@@ -225,11 +243,13 @@ export async function fetchCatalogForVendor(
       minCaseQtyOverride: r.min_case_qty_override ?? null,
       prePalletized: r.pre_palletized,
       physicalSpecsVerified: r.physical_specs_verified,
-      costPerCase: Number(r.cost_per_case),
       sellPricePerCase: Number(r.sell_price_per_case),
-      marginPct: r.target_margin_pct !== null ? Number(r.target_margin_pct) : null,
     };
     bucket.skus.push(sku);
+    pricing.set(r.vendor_product_id, {
+      costPerCase: Number(r.cost_per_case),
+      marginPct: r.target_margin_pct !== null ? Number(r.target_margin_pct) : null,
+    });
   }
 
   // Sort SKUs within each category by vendor SKU; sort categories by name.
@@ -241,17 +261,20 @@ export async function fetchCatalogForVendor(
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return {
-    vendorId,
-    slug: access.slug,
-    displayName: access.displayName,
-    containerCode: access.containerCode,
-    termsLabel: access.termsLabel,
-    currency: access.currency,
-    minCaseQty: access.minCaseQty,
-    minFillPct: access.minFillPct,
-    pricesPending: access.pricesPending,
-    pricesPendingReason: access.pricesPendingReason,
-    categories,
-    skuCount: rows.length,
+    catalog: {
+      vendorId,
+      slug: access.slug,
+      displayName: access.displayName,
+      containerCode: access.containerCode,
+      termsLabel: access.termsLabel,
+      currency: access.currency,
+      minCaseQty: access.minCaseQty,
+      minFillPct: access.minFillPct,
+      pricesPending: access.pricesPending,
+      pricesPendingReason: access.pricesPendingReason,
+      categories,
+      skuCount: rows.length,
+    },
+    pricing,
   };
 }

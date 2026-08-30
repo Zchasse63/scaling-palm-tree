@@ -30,8 +30,18 @@ export interface CatalogSku {
   minCaseQtyOverride: number | null;
   prePalletized: boolean;
   physicalSpecsVerified: boolean;
-  costPerCase: number;
   sellPricePerCase: number;
+}
+
+/**
+ * Internal pricing for a catalog SKU. Deliberately NOT part of CatalogSku:
+ * CatalogSku is serialized into the customer-facing builder page payload, and
+ * cost/margin must never reach a customer's browser. Server code that needs
+ * these (order submit) uses fetchCatalogForVendorWithPricing, which returns
+ * them in a separate server-only map.
+ */
+export interface CatalogSkuPricing {
+  costPerCase: number;
   marginPct: number | null;
 }
 
