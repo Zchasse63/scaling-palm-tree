@@ -58,7 +58,7 @@ export default async function SkuDetailPage({ params }: PageProps) {
 
   const showChart =
     row.hasHistory &&
-    (row.velocity.ratePerWeek !== null || detail.openOrderLines.length > 0);
+    (row.velocity.ratePerWeek !== null || detail.inboundLines.length > 0);
 
   const basisWindow =
     row.velocity.reason === "insufficient_history"
@@ -147,8 +147,10 @@ export default async function SkuDetailPage({ params }: PageProps) {
       >
         {(
           [
-            ["First received", detail.stats.firstObservedDay ? fmtDayShort(detail.stats.firstObservedDay) : "—"],
-            ["Total shipped", `${fmtInt(detail.stats.totalConsumed)} cs`],
+            ["First observed", detail.stats.firstObservedDay ? fmtDayShort(detail.stats.firstObservedDay) : "—"],
+            // "Observed consumption", not "shipped": snapshot draw-downs
+            // include transfers and samples, not only customer shipments.
+            ["Observed consumption", `${fmtInt(detail.stats.totalConsumed)} cs`],
             [
               "Peak draw",
               detail.stats.peakDraw
@@ -193,17 +195,18 @@ export default async function SkuDetailPage({ params }: PageProps) {
                 ariaLabel={`Runway: available ${fmtInt(row.available)} cases${row.floor !== null ? `, floor ${fmtInt(row.floor)}` : ""}${runway.arrivals[0] ? `, container arriving ${fmtDayShort(runway.arrivals[0].day)} with ${fmtInt(runway.arrivals[0].qty)}` : ""}`}
               />
               <div className="t-micro" style={{ marginTop: 8, color: "var(--warm)" }}>
-                Projection: available minus open orders, then {basisWindow}. Containers at
-                ETA. Not a forecast of customer orders.
+                Projection: available to promise (commitments already netted) declining at{" "}
+                {basisWindow}; containers at ETA. Same math as the Act now test. Not a
+                forecast of customer orders.
                 {row.velocity.ratePerWeek === null
-                  ? " Projection ends at the last known commitment (insufficient history)."
+                  ? " No usable velocity yet, so the line holds flat."
                   : ""}
               </div>
             </>
           ) : (
             <div className="mono t-cap" style={{ padding: "24px 0", color: "var(--mid)" }}>
               {row.hasHistory
-                ? "No velocity and no open commitments: nothing to project yet."
+                ? "No velocity and nothing inbound: nothing to project yet."
                 : "Not yet received. This SKU appears once its first container lands."}
             </div>
           )}
@@ -312,7 +315,13 @@ export default async function SkuDetailPage({ params }: PageProps) {
                       className="t-micro"
                       style={{ display: "flex", flexDirection: "column", gap: 2 }}
                     >
-                      <span>{m.isReceipt ? "receipt" : m.notes ?? ""}</span>
+                      <span>
+                        {m.isReceipt
+                          ? "receipt"
+                          : m.tombstone
+                            ? "absent from report · counted as 0"
+                            : m.notes ?? ""}
+                      </span>
                       {(m.notes?.match(/DN-\d+/g) ?? []).map((dn) => {
                         const ref = detail.dnRefs[dn];
                         if (!ref) return null;

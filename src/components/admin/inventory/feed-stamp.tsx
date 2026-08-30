@@ -1,5 +1,7 @@
 // Feed freshness: the highest-stakes element on every inventory view.
-// The SNAPSHOT time is stamped, never the page-load time. Stale looks stale.
+// The SNAPSHOT time is stamped, never the page-load time. Stale looks stale,
+// and a degraded pipeline (parse failures, unmatched SKUs, missed reports)
+// says so instead of hiding behind a green "ok".
 
 import Link from "next/link";
 import { fmtDayShort, fmtEtStamp, etDayKey } from "@/lib/inventory/calc";
@@ -26,15 +28,29 @@ function staleBanner(feed: FeedHealth): React.ReactNode {
   );
 }
 
+/** First sync job whose last status is not an "ok:" — the degraded signal. */
+function pipelineIssue(feed: FeedHealth): { job: string; status: string } | null {
+  for (const j of feed.syncJobs) {
+    if (j.lastStatus && !j.lastStatus.startsWith("ok")) {
+      return { job: j.job, status: j.lastStatus };
+    }
+  }
+  return null;
+}
+
 /** Full strip for the dashboard; compact single line for detail/inbound views. */
 export function FeedStamp({
   feed,
   variant,
+  detailHref,
 }: {
   feed: FeedHealth;
   variant: "full" | "compact";
+  /** Href for the feed-detail toggle, built by the page so filters survive. */
+  detailHref?: string;
 }) {
   const banner = staleBanner(feed);
+  const issue = pipelineIssue(feed);
   const stamp = feed.latestCountedAt ? (
     <>
       As of UNIS report {fmtEtStamp(feed.latestCountedAt)}
@@ -83,15 +99,26 @@ export function FeedStamp({
             {" "}
             &middot; {gapLine}
           </span>
+          {feed.unmatchedSkus > 0 ? (
+            <span style={{ color: "var(--amber)" }} title="Report SKUs with no vendor_products match; excluded from every figure. See feed detail.">
+              {" "}
+              &middot; {feed.unmatchedSkus} unmatched SKU{feed.unmatchedSkus === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
         <Link
-          href="/admin/inventory?feed=1"
+          href={detailHref ?? "/admin/inventory?feed=1"}
           className="mono t-cap"
           style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 3 }}
         >
           Feed detail →
         </Link>
       </div>
+      {issue ? (
+        <div className="banner-amber">
+          Pipeline degraded — {issue.job}: {issue.status.slice(0, 160)}
+        </div>
+      ) : null}
       {banner}
     </div>
   );

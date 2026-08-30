@@ -115,8 +115,10 @@ export function InventoryTable({
           const arrow = active ? (dir === "asc" ? " ↑" : " ↓") : "";
           const title =
             h.label === "Cover"
-              ? `Weeks of cover: available / trailing ${trendLabel} velocity, stockout-corrected`
-              : undefined;
+              ? "Weeks of cover: available / trailing velocity, stockout-corrected. Each SKU uses its own history window (hover a value)."
+              : h.label === "Trend"
+                ? `Weekly consumption sparkline, up to ${trendLabel} of history`
+                : undefined;
           return (
             <div
               key={h.label}
@@ -231,16 +233,30 @@ export function InventoryTable({
               <span className="inv-label t-eyebrow">Cover</span>
               <span
                 className="mono"
+                title={
+                  r.cover !== null
+                    ? `available / trailing ${r.velocity.windowWeeks}w velocity (this SKU's window)`
+                    : undefined
+                }
                 style={{ fontSize: 12, color: cover.amber ? "var(--amber)" : undefined }}
               >
                 {cover.text}
               </span>
+              {r.p90OrderCases !== null && r.p90OrderCases > 0 && r.available > 0 ? (
+                <div
+                  className="t-micro"
+                  style={{ color: "var(--warm)" }}
+                  title={`Orders of cover: available / P90 real order size (${fmtInt(r.p90OrderCases)} cs)`}
+                >
+                  ≈{Math.floor(r.available / r.p90OrderCases)} ord
+                </div>
+              ) : null}
             </div>
             <div className="inv-hide-mobile" style={{ display: "flex", justifyContent: "flex-end" }}>
               <Sparkline
                 weeks={r.weeklyConsumption}
                 receipts={r.weeklyReceipts}
-                label={`Weekly consumption, trailing ${trendLabel}`}
+                label={`Weekly consumption, trailing ${r.velocity.windowWeeks || 13}w`}
               />
             </div>
             <div className="inv-c-value" style={{ textAlign: "right" }}>
@@ -267,7 +283,8 @@ export function InventoryTable({
         );
       })}
 
-      {/* totals: equals the raw snapshot sums (verified in tests) */}
+      {/* totals: sums of the rows shown, which the label says plainly —
+          a bucket/category/search filter narrows these numbers. */}
       <div
         className="admin-inventory-row-headers"
         style={{
@@ -280,7 +297,7 @@ export function InventoryTable({
           alignItems: "center",
         }}
       >
-        <div className="t-eyebrow">Total</div>
+        <div className="t-eyebrow">Total · this view</div>
         <div className="t-micro">{rows.length} SKUs</div>
         <div style={{ textAlign: "right" }}>{numCell(totals.onHand)}</div>
         <div style={{ textAlign: "right" }}>{numCell(totals.staged)}</div>

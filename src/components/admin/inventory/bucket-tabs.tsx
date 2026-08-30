@@ -46,8 +46,9 @@ export function BucketTabs({
               display: "inline-flex",
               alignItems: "center",
               gap: 7,
-              height: 28,
-              padding: "0 12px",
+              // 36px hit target (28px looked tighter than it tapped)
+              height: 36,
+              padding: "0 14px",
               fontSize: 11,
               letterSpacing: "0.06em",
               textTransform: "uppercase",

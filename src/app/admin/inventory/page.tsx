@@ -189,9 +189,9 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
         <div className="t-h1">Savannah stock</div>
       </div>
 
-      <FeedStamp feed={feed} variant="full" />
+      <FeedStamp feed={feed} variant="full" detailHref={makeHref({ feed: "1" })} />
 
-      {showFeed ? <FeedDetail data={data} /> : null}
+      {showFeed ? <FeedDetail data={data} closeHref={makeHref({ feed: null })} /> : null}
 
       {rows.length === 0 ? (
         <section
@@ -218,26 +218,29 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
               gap: 14,
             }}
           >
+            {/* KPI tiles total ALL SKUs, so their drill-downs reset the
+                bucket/category/search scope — a filtered landing view would
+                not add up to the number just clicked. */}
             <Stat
               label="Cases on hand"
               value={fmtInt(totals.onHand)}
-              href={makeHref({ sort: "on_hand", dir: "desc" })}
+              href={makeHref({ sort: "on_hand", dir: "desc", bucket: "all", cat: null, q: null })}
             />
             <Stat
               label="Available to promise"
               value={fmtInt(totals.avail)}
-              href={makeHref({ sort: "avail", dir: "asc" })}
+              href={makeHref({ sort: "avail", dir: "asc", bucket: "all", cat: null, q: null })}
             />
             <Stat
               label="Pallets on hand"
               value={fmtInt(totals.pallets)}
-              href={makeHref({ sort: "on_hand", dir: "desc" })}
+              href={makeHref({ sort: "on_hand", dir: "desc", bucket: "all", cat: null, q: null })}
             />
             <Stat
               label="Value at cost"
               value={fmtMoneyPos(totals.value)}
               sub={totals.anyApprox ? "internal · approx" : "internal · current cost"}
-              href={makeHref({ sort: "value", dir: "desc" })}
+              href={makeHref({ sort: "value", dir: "desc", bucket: "all", cat: null, q: null })}
             />
             <Stat
               label="Next container"
@@ -352,6 +355,65 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
                 </div>
               ) : null}
 
+              {/* Staged-vs-paper reconciliation queue: UNIS pulled cases no
+                  open order accounts for. Each is a real order our records
+                  are missing (the SunCoast pattern) — chase the paperwork. */}
+              {(() => {
+                const recon = scoped.filter((r) => r.reconcileGap > 0);
+                if (recon.length === 0) return null;
+                return (
+                  <section style={{ background: "white", border: "1px solid var(--amber)" }}>
+                    <div
+                      className="t-eyebrow"
+                      style={{
+                        padding: "10px 16px",
+                        background: "var(--amber-bg)",
+                        color: "var(--amber)",
+                        borderBottom: "1px solid var(--amber)",
+                      }}
+                    >
+                      Staged without matching paper · {recon.length} SKU
+                      {recon.length === 1 ? "" : "s"} ·{" "}
+                      {fmtInt(recon.reduce((s, r) => s + r.reconcileGap, 0))} cases
+                    </div>
+                    <div style={{ padding: "6px 16px 10px" }}>
+                      {recon.map((r) => (
+                        <div
+                          key={r.vendorProductId}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "132px 1fr auto",
+                            gap: 12,
+                            padding: "5px 0",
+                            borderBottom: "1px solid var(--rule)",
+                            alignItems: "baseline",
+                          }}
+                        >
+                          <Link
+                            href={`/admin/inventory/${r.vendorProductId}#commitments`}
+                            className="mono"
+                            style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)", textDecoration: "none" }}
+                          >
+                            {r.sku}
+                          </Link>
+                          <span className="t-micro">{r.description}</span>
+                          <span className="mono" style={{ fontSize: 12 }}>
+                            staged {fmtInt(r.staged)} · paper {fmtInt(r.ordersOpen)} ·{" "}
+                            <span style={{ color: "var(--amber)", fontWeight: 600 }}>
+                              gap {fmtInt(r.reconcileGap)}
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+                      <div className="t-micro" style={{ marginTop: 6, color: "var(--warm)" }}>
+                        UNIS has pulled these cases for orders our records don&apos;t show.
+                        Capture the missing POs; ATP already treats them as committed.
+                      </div>
+                    </div>
+                  </section>
+                );
+              })()}
+
               {sorted.length === 0 ? (
                 <section
                   style={{
@@ -434,7 +496,7 @@ function Stat({
   );
 }
 
-function FeedDetail({ data }: { data: InventoryDashboardData }) {
+function FeedDetail({ data, closeHref }: { data: InventoryDashboardData; closeHref: string }) {
   const { feed } = data;
   return (
     <section style={{ background: "white", border: "1px solid var(--rule)" }}>
@@ -450,7 +512,7 @@ function FeedDetail({ data }: { data: InventoryDashboardData }) {
       >
         <div className="t-eyebrow">Feed detail · last 14 reports</div>
         <Link
-          href="/admin/inventory"
+          href={closeHref}
           className="mono t-cap"
           style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 3 }}
         >
@@ -497,6 +559,14 @@ function FeedDetail({ data }: { data: InventoryDashboardData }) {
             </div>
           ))}
         </div>
+
+        {feed.unmatchedSkus > 0 ? (
+          <div className="t-micro" style={{ color: "var(--amber)" }}>
+            {feed.unmatchedSkus} report SKU{feed.unmatchedSkus === 1 ? "" : "s"} have no
+            vendor_products match and are excluded from every figure (open rows in
+            data_quality_log, rule unis_unmatched_sku).
+          </div>
+        ) : null}
 
         {feed.syncJobs.length > 0 ? (
           <div>

@@ -3,12 +3,14 @@
 
 import Link from "next/link";
 import { fmtInt } from "@/lib/math/fmt";
-import { dayDiff, fmtDayShort, fmtEtStamp } from "@/lib/inventory/calc";
+import { dayDiff, etDayKey, fmtDayShort } from "@/lib/inventory/calc";
 import {
   fetchInboundFormOptions,
   fetchInboundShipments,
   fetchInventoryDashboard,
+  fetchReceiptChecks,
   type InboundShipmentView,
+  type ReceiptCheck,
 } from "@/lib/inventory/query";
 import { FeedStamp } from "@/components/admin/inventory/feed-stamp";
 import {
@@ -31,7 +33,28 @@ export default async function InboundPage() {
     fetchInboundShipments(),
     fetchInboundFormOptions(),
   ]);
+  const receiptChecks = await fetchReceiptChecks(shipments.received);
   const actNow = dashboard.rows.filter((r) => r.bucket === "act_now").length;
+
+  // Actual-vs-planned lead time by vendor (learning log rollup).
+  const byVendor = new Map<string, { actual: number[]; planned: number[] }>();
+  for (const s of shipments.received) {
+    if (s.actualLeadDays === null) continue;
+    const key = s.vendorName ?? "Unknown vendor";
+    const e = byVendor.get(key) ?? { actual: [], planned: [] };
+    e.actual.push(s.actualLeadDays);
+    if (s.plannedLeadDays !== null) e.planned.push(s.plannedLeadDays);
+    byVendor.set(key, e);
+  }
+  const vendorLeadTimes = Array.from(byVendor.entries()).map(([vendor, e]) => ({
+    vendor,
+    n: e.actual.length,
+    avgActual: Math.round(e.actual.reduce((a, b) => a + b, 0) / e.actual.length),
+    avgPlanned:
+      e.planned.length > 0
+        ? Math.round(e.planned.reduce((a, b) => a + b, 0) / e.planned.length)
+        : null,
+  }));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -112,38 +135,95 @@ export default async function InboundPage() {
             </div>
           </div>
           <div style={{ padding: "8px 22px 14px" }}>
-            {shipments.received.map((s) => (
+            {vendorLeadTimes.length > 0 ? (
               <div
-                key={s.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "110px 1fr 110px 150px",
-                  gap: 14,
-                  padding: "6px 0",
-                  borderBottom: "1px solid var(--rule)",
-                  alignItems: "baseline",
-                }}
+                className="t-micro"
+                style={{ padding: "4px 0 8px", color: "var(--mid)", borderBottom: "1px solid var(--rule)" }}
               >
-                <span className="mono" style={{ fontSize: 12 }}>
-                  {s.receivedAt ? fmtDayShort(s.receivedAt.slice(0, 10)) : "—"}
-                </span>
-                <span className="mono" style={{ fontSize: 12 }}>
-                  {s.containerNo ?? s.poNumber ?? "shipment"}
-                  {s.vendorName ? ` · ${s.vendorName}` : ""}
-                </span>
-                <span className="mono" style={{ fontSize: 12, textAlign: "right" }}>
-                  {fmtInt(s.lines.reduce((t, l) => t + l.qtyCases, 0))} cs
-                </span>
-                <span className="t-micro" style={{ textAlign: "right" }}>
-                  {s.actualLeadDays !== null
-                    ? `${s.actualLeadDays}d actual${s.plannedLeadDays !== null ? ` / ${s.plannedLeadDays}d planned` : ""}`
-                    : ""}
-                </span>
+                {vendorLeadTimes
+                  .map(
+                    (v) =>
+                      `${v.vendor}: avg ${v.avgActual}d actual` +
+                      (v.avgPlanned !== null ? ` vs ${v.avgPlanned}d planned` : "") +
+                      ` (${v.n})`,
+                  )
+                  .join(" · ")}
+              </div>
+            ) : null}
+            {shipments.received.map((s) => (
+              <div key={s.id} style={{ borderBottom: "1px solid var(--rule)" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "110px 1fr 110px 150px",
+                    gap: 14,
+                    padding: "6px 0",
+                    alignItems: "baseline",
+                  }}
+                >
+                  <span className="mono" style={{ fontSize: 12 }}>
+                    {s.receivedAt ? fmtDayShort(etDayKey(s.receivedAt)) : "—"}
+                  </span>
+                  <span className="mono" style={{ fontSize: 12 }}>
+                    {s.containerNo ?? s.poNumber ?? "shipment"}
+                    {s.vendorName ? ` · ${s.vendorName}` : ""}
+                  </span>
+                  <span className="mono" style={{ fontSize: 12, textAlign: "right" }}>
+                    {fmtInt(s.lines.reduce((t, l) => t + l.qtyCases, 0))} cs
+                  </span>
+                  <span className="t-micro" style={{ textAlign: "right" }}>
+                    {s.actualLeadDays !== null
+                      ? `${s.actualLeadDays}d actual${s.plannedLeadDays !== null ? ` / ${s.plannedLeadDays}d planned` : ""}`
+                      : ""}
+                  </span>
+                </div>
+                <ReceiptCheckLine s={s} checks={receiptChecks} />
               </div>
             ))}
           </div>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Receipt-to-PO verification line: planned vs the observed snapshot jump.
+ * Silent when every line verified clean; shortages and overages get called
+ * out per SKU so a vendor claim can go out while the container is fresh.
+ */
+function ReceiptCheckLine({
+  s,
+  checks,
+}: {
+  s: InboundShipmentView;
+  checks: Map<string, ReceiptCheck>;
+}) {
+  const problems = s.lines
+    .map((l) => ({ l, c: checks.get(l.id) }))
+    .filter(
+      (x): x is { l: (typeof s.lines)[number]; c: ReceiptCheck } =>
+        x.c !== undefined && (x.c.verdict === "short" || x.c.verdict === "over"),
+    );
+  const verified = s.lines.filter((l) => checks.get(l.id)?.verdict === "ok").length;
+  if (problems.length === 0) {
+    return verified > 0 ? (
+      <div className="t-micro" style={{ padding: "0 0 6px", color: "var(--warm)" }}>
+        receipt verified against UNIS ({verified}/{s.lines.length} line
+        {s.lines.length === 1 ? "" : "s"})
+      </div>
+    ) : null;
+  }
+  return (
+    <div className="t-micro" style={{ padding: "0 0 6px", color: "var(--amber)" }}>
+      {problems
+        .map(
+          ({ l, c }) =>
+            `${l.sku ?? "line"}: ${c.verdict === "short" ? "short" : "over"} ` +
+            `(planned ${fmtInt(l.qtyCases)}, observed +${fmtInt(c.deltaCases ?? 0)})`,
+        )
+        .join(" · ")}{" "}
+      — check the UNIS receipt paperwork.
     </div>
   );
 }

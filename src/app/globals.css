@@ -405,6 +405,11 @@ html, body {
   .inv-hide-mobile {
     display: none !important;
   }
+  /* Stacked rows have full width: let descriptions wrap instead of truncating */
+  .admin-inventory-row > .inv-c-desc {
+    white-space: normal !important;
+    overflow: visible !important;
+  }
   /* Mobile stacking order: identity, then the decision trio, then detail */
   .admin-inventory-row > .inv-c-sku { order: 0; }
   .admin-inventory-row > .inv-c-desc { order: 1; }

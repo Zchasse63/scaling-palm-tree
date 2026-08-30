@@ -1261,6 +1261,91 @@ export async function fetchInboundShipments(): Promise<{
   };
 }
 
+export interface ReceiptCheck {
+  verdict: "ok" | "short" | "over" | "unknown";
+  /** Observed physical jump across the receipt, when computable. */
+  deltaCases: number | null;
+}
+
+/**
+ * Receipt-to-PO verification: for each line of a received shipment, compare
+ * planned cases against the physical jump between the last report before the
+ * receipt day and the first report on/after it. Tolerance max(2, 2%) absorbs
+ * same-day outflow; anything beyond that is a shortage/overage worth a note
+ * to the vendor. Keyed by inbound_shipment_lines.id.
+ */
+export async function fetchReceiptChecks(
+  received: InboundShipmentView[],
+): Promise<Map<string, ReceiptCheck>> {
+  const out = new Map<string, ReceiptCheck>();
+  const targets = received.filter((s) => s.receivedAt !== null);
+  if (targets.length === 0) return out;
+
+  const vpIds = Array.from(
+    new Set(
+      targets.flatMap((s) =>
+        s.lines.map((l) => l.vendorProductId).filter((x): x is string => x !== null),
+      ),
+    ),
+  );
+  if (vpIds.length === 0) return out;
+
+  const days = targets.map((s) => etDayKey(s.receivedAt!));
+  const minIso = addDays(days.slice().sort()[0], -10) + "T00:00:00Z";
+  const admin = adminClient();
+  const rows = await fetchAllPages<SnapshotDbRow>("receipt snapshots", (from, to) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (admin as any)
+      .from("inventory_system_snapshots")
+      .select(
+        "vendor_product_id, counted_at, created_at, qty_cases, qty_picked_cases, pallets_on_hand, notes",
+      )
+      .in("vendor_product_id", vpIds)
+      .gte("counted_at", minIso)
+      .order("counted_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+
+  // day -> physical per SKU (max counted_at per day wins)
+  const seriesByVp = new Map<string, DayPoint[]>();
+  for (const [vp, snaps] of toSnapshotInputs(rows)) {
+    seriesByVp.set(vp, buildDailySeries(snaps));
+  }
+
+  for (const s of targets) {
+    const day = etDayKey(s.receivedAt!);
+    for (const l of s.lines) {
+      if (!l.vendorProductId) {
+        out.set(l.id, { verdict: "unknown", deltaCases: null });
+        continue;
+      }
+      const series = seriesByVp.get(l.vendorProductId) ?? [];
+      const before = series.filter((p) => p.day < day).at(-1) ?? null;
+      // The receipt lands in the same-day 4pm report or (received after 4pm)
+      // the next one — take the larger observed jump of the two candidates.
+      const after1 = series.find((p) => p.day >= day) ?? null;
+      const after2 = series.find((p) => p.day > day) ?? null;
+      if (!before || !after1) {
+        out.set(l.id, { verdict: "unknown", deltaCases: null });
+        continue;
+      }
+      const d1 = after1.physical - before.physical;
+      const d2 = after2 ? after2.physical - before.physical : d1;
+      const delta = Math.max(d1, d2);
+      const tol = Math.max(2, Math.round(l.qtyCases * 0.02));
+      const verdict =
+        Math.abs(delta - l.qtyCases) <= tol
+          ? "ok"
+          : delta < l.qtyCases
+            ? "short"
+            : "over";
+      out.set(l.id, { verdict, deltaCases: delta });
+    }
+  }
+  return out;
+}
+
 /** Vendors + active SKUs for the inbound entry form. */
 export async function fetchInboundFormOptions(): Promise<{
   vendors: Array<{ id: string; name: string }>;
