@@ -1,6 +1,6 @@
 // Runway: does stock bridge to the next container? Server-rendered SVG.
-// Geometry per UIUX spec section 5: solid through the last known commitment,
-// dashed at trailing velocity beyond it, jumps at container ETAs, burgundy
+// Canonical projection (calc.projectRunway): starts at ATP today (solid dot),
+// declines dashed at trailing velocity, jumps at container ETAs, burgundy
 // floor hairline, amber shaded band in the WATCH case.
 
 import { addDays, dayDiff, fmtDayShort } from "@/lib/inventory/calc";
@@ -106,7 +106,7 @@ export function RunwayChart({
         </g>
       ) : null}
 
-      {/* projection: solid = known commitments, dashed = inferred velocity */}
+      {/* projection: today's point is known, the forward line is inferred */}
       {solid.length > 1 ? (
         <path d={path(solid)} fill="none" stroke="var(--ink)" strokeWidth={1.5} />
       ) : null}
@@ -119,8 +119,6 @@ export function RunwayChart({
           strokeDasharray="4 3"
         />
       ) : null}
-      {/* open endpoint when the projection stops early (no velocity) */}
-      {inferred.length === 0 && dayDiff(todayKey, endDay) < horizonDays ? null : null}
       <circle
         cx={x(endDay)}
         cy={y(pts[pts.length - 1].value)}

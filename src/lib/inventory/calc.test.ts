@@ -15,7 +15,9 @@ import {
   etDayKey,
   finiteOrNull,
   fmtEtStamp,
+  medianGap,
   missingReportDays,
+  p90,
   projectRunway,
   reconcileFlag,
 } from "./calc";
@@ -76,6 +78,38 @@ describe("buildDailySeries", () => {
   it("computes physical = available + staged", () => {
     const [p] = buildDailySeries([snap("2026-08-27", 874, 84)]);
     expect(p.physical).toBe(958);
+  });
+  it("materializes tombstone zeros on report days the SKU is absent from", () => {
+    const reportDays = ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"];
+    const series = buildDailySeries(
+      [snap("2026-08-02", 40), snap("2026-08-03", 10)],
+      reportDays,
+    );
+    // no tombstone before the SKU first appears (08-01), one after (08-04)
+    expect(series.map((p) => p.day)).toEqual([
+      "2026-08-02",
+      "2026-08-03",
+      "2026-08-04",
+    ]);
+    const tomb = series[2];
+    expect(tomb.physical).toBe(0);
+    expect(tomb.tombstone).toBe(true);
+    // the sell-to-zero now shows as consumption in movement
+    const m = buildMovement(series);
+    expect(m[2].consumption).toBe(10);
+  });
+});
+
+describe("medianGap / p90", () => {
+  it("averages the two middle gaps on even counts", () => {
+    expect(medianGap([7, 21])).toBe(14);
+    expect(medianGap([7, 14, 21])).toBe(14);
+    expect(medianGap([])).toBeNull();
+  });
+  it("p90 needs the minimum sample count and picks the 90th percentile", () => {
+    expect(p90([10, 20], 5)).toBeNull();
+    expect(p90([10, 10, 10, 10, 100], 5)).toBe(100);
+    expect(p90(Array.from({ length: 10 }, (_, i) => (i + 1) * 10), 5)).toBe(90);
   });
 });
 
@@ -278,64 +312,87 @@ describe("missingReportDays", () => {
 });
 
 describe("projectRunway", () => {
-  it("replays open orders on their dates and jumps at container ETAs", () => {
+  it("starts at ATP, declines at velocity, jumps at container ETAs", () => {
     const r = projectRunway({
       todayKey: "2026-09-01",
       available: 800,
-      velocity: vel(70),
-      openOrders: [
-        { vendorProductId: "vp-1", qtyCases: 120, qtyShippedCases: 0, orderNumber: "SO-1", customerName: "A", requestedDate: "2026-09-05" },
-      ],
+      velocity: vel(70), // 10/day
       inbound: [
         { shipmentId: "s1", vendorProductId: "vp-1", sku: null, qtyCases: 4000, eta: "2026-09-20", containerNo: "EGSU2569353" },
       ],
       floor: 240,
     });
     const byDay = new Map(r.points.map((p) => [p.day, p]));
-    // starts at available + open (ATP already nets the order out)
-    expect(byDay.get("2026-09-01")!.value).toBe(920);
-    // the order steps the line down on its requested date
-    expect(byDay.get("2026-09-05")!.value).toBe(800);
-    expect(byDay.get("2026-09-05")!.inferred).toBe(false);
-    // inferred decline at 10/day after the last commitment
-    expect(byDay.get("2026-09-19")!.value).toBeCloseTo(660, 5);
-    expect(byDay.get("2026-09-06")!.inferred).toBe(true);
+    // starts at ATP exactly — open commitments are already netted out and
+    // must NOT be re-added (the pre-audit version showed an inflated start)
+    expect(byDay.get("2026-09-01")!.value).toBe(800);
+    expect(byDay.get("2026-09-01")!.inferred).toBe(false);
+    // velocity decline from day 1; everything forward is inferred
+    expect(byDay.get("2026-09-05")!.value).toBeCloseTo(760, 5);
+    expect(byDay.get("2026-09-05")!.inferred).toBe(true);
+    expect(byDay.get("2026-09-19")!.value).toBeCloseTo(620, 5);
     // container arrival jumps the line
-    expect(byDay.get("2026-09-20")!.value).toBeCloseTo(4650, 5);
+    expect(byDay.get("2026-09-20")!.value).toBeCloseTo(4610, 5);
     expect(r.arrivals).toEqual([
       { day: "2026-09-20", qty: 4000, containerNo: "EGSU2569353" },
     ]);
+    // 800 - 10/day crosses 240 at +57d, but the container refills first —
+    // after 09-20 the line stays far above floor, so no crossing before it.
     expect(r.floorCrossDay).toBeNull();
   });
 
-  it("ends at the last known commitment when velocity is unknown", () => {
+  it("holds flat across the horizon when velocity is unknown", () => {
     const r = projectRunway({
       todayKey: "2026-09-01",
       available: 500,
       velocity: vel(null, "insufficient_history"),
-      openOrders: [
-        { vendorProductId: "vp-1", qtyCases: 100, qtyShippedCases: 0, orderNumber: "SO-2", customerName: "B", requestedDate: "2026-09-03" },
-      ],
       inbound: [],
       floor: null,
     });
-    expect(r.points[r.points.length - 1]).toMatchObject({
-      day: "2026-09-03",
-      value: 500,
-    });
+    expect(r.points[0]).toMatchObject({ day: "2026-09-01", value: 500 });
+    expect(r.points[r.points.length - 1].value).toBe(500);
+    expect(r.points.length).toBe(16 * 7 + 1);
   });
 
-  it("records the floor-crossing day", () => {
+  it("records the floor-crossing day, matching computeBucket's ACT NOW math", () => {
     const r = projectRunway({
       todayKey: "2026-09-01",
       available: 300,
-      velocity: vel(70), // 10/day inferred from day 2
-      openOrders: [],
+      velocity: vel(70), // 10/day
       inbound: [],
       floor: 240,
     });
-    // 300 - 10/day: crosses below 240 on day +7 (value 230)
+    // 300 - 10/day: below 240 on day +7 (value 230)
     expect(r.floorCrossDay).toBe("2026-09-08");
+    // consistency: bucket position at a 7-day lead time = same value
+    const bucket = computeBucket({
+      hasHistory: true,
+      physical: 300,
+      available: 300,
+      inboundTotal: 0,
+      inboundWithinLeadTime: 0,
+      velocity: vel(70),
+      cover: 300 / 70,
+      floor: 240,
+      leadTimeDays: 7,
+    });
+    expect(bucket).toBe("act_now");
+  });
+
+  it("merges same-day arrivals and joins container labels", () => {
+    const r = projectRunway({
+      todayKey: "2026-09-01",
+      available: 100,
+      velocity: vel(null, "insufficient_history"),
+      inbound: [
+        { shipmentId: "s1", vendorProductId: "vp-1", sku: null, qtyCases: 2000, eta: "2026-10-15", containerNo: "CONT-A" },
+        { shipmentId: "s2", vendorProductId: "vp-1", sku: null, qtyCases: 1500, eta: "2026-10-15", containerNo: "CONT-B" },
+      ],
+      floor: null,
+    });
+    expect(r.arrivals).toEqual([
+      { day: "2026-10-15", qty: 3500, containerNo: "CONT-A / CONT-B" },
+    ]);
   });
 });
 

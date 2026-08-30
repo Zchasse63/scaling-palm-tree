@@ -12,6 +12,19 @@ export const ORDERS_OF_COVER_MIN_LINES = 5;
 export const RUNWAY_HORIZON_WEEKS = 16;
 // Order statuses that hold stock on paper (confirmed but not shipped).
 export const OPEN_ORDER_STATUSES = ["confirmed", "in_production", "ready"];
+// Real purchase commitments: everything from confirmation on. Excludes
+// po_received/quoted (a portal cart submit is not yet a sale) and cancelled.
+// Buyer analytics, cadence, and bought-with all use this set so a submitted
+// but never-confirmed cart can't pollute demand history.
+export const REAL_ORDER_STATUSES = [
+  "confirmed",
+  "in_production",
+  "ready",
+  "shipped",
+  "delivered",
+  "invoiced",
+  "paid",
+];
 
 export type Bucket =
   | "stockout"
@@ -42,6 +55,12 @@ export interface DayPoint {
   physical: number; // available + staged
   pallets: number | null;
   notes: string | null;
+  /**
+   * True when this point was synthesized for a report day the SKU was absent
+   * from (UNIS omits sold-out SKUs). The zero is real inventory state, but
+   * there is no underlying snapshot row.
+   */
+  tombstone?: boolean;
 }
 
 export interface MovementDay extends DayPoint {

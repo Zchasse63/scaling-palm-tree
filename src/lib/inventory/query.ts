@@ -17,7 +17,9 @@ import {
   customerCadences,
   etDayKey,
   finiteOrNull,
+  medianGap,
   missingReportDays,
+  p90,
   reconcileFlag,
   addDays,
   type ConsumptionStats,
@@ -26,6 +28,8 @@ import {
 import {
   DEFAULT_LEAD_TIME_DAYS,
   OPEN_ORDER_STATUSES,
+  ORDERS_OF_COVER_MIN_LINES,
+  REAL_ORDER_STATUSES,
   type Bucket,
   type DayPoint,
   type InboundLineInput,
@@ -56,6 +60,8 @@ export interface FeedHealth {
     totalCases: number;
     ingestedAt: string | null;
   }>;
+  /** Open unis_unmatched_sku rows in data_quality_log (feed truthfulness). */
+  unmatchedSkus: number;
 }
 
 export interface InventoryRow {
@@ -77,6 +83,10 @@ export interface InventoryRow {
   cover: number | null;
   bucket: Bucket;
   reconcile: boolean;
+  /** Cases staged by UNIS beyond what open paper accounts for. */
+  reconcileGap: number;
+  /** P90 of real order-line cases; null under ORDERS_OF_COVER_MIN_LINES lines. */
+  p90OrderCases: number | null;
   weeklyConsumption: number[]; // oldest -> newest, for the sparkline
   weeklyReceipts: boolean[];
   valueAtCost: number | null;
@@ -170,6 +180,31 @@ export interface InboundShipmentView {
 
 // ---------------------------------------------------------------- helpers
 
+/**
+ * Drain a PostgREST query completely. PostgREST silently caps responses at
+ * 1,000 rows regardless of .limit(); any list that can grow (order lines,
+ * snapshots) must page or it will silently undercount one day. `build` must
+ * apply a stable ORDER BY so pages don't shear.
+ */
+async function fetchAllPages<T>(
+  label: string,
+  build: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await build(offset, offset + PAGE - 1);
+    if (error) throw new Error(label + " fetch failed: " + error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+    if (offset > 50_000) throw new Error(label + " fetch runaway: >50k rows");
+  }
+  return out;
+}
+
 interface SnapshotDbRow {
   vendor_product_id: string;
   counted_at: string;
@@ -180,31 +215,31 @@ interface SnapshotDbRow {
   notes: string | null;
 }
 
-async function fetchSystemSnapshots(sinceIso: string) {
-  // PostgREST silently caps responses at 1,000 rows regardless of .limit();
-  // the history is ~2,500 rows, so an uncapped single fetch would return only
-  // the OLDEST rows and every downstream number would be weeks stale. Page
-  // explicitly until a short page arrives.
+/**
+ * System (UNIS report) snapshot rows via the inventory_system_snapshots view,
+ * which bakes in the count_method='system' filter structurally. sinceIso null
+ * = full history; vendorProductId narrows to one SKU (detail page).
+ */
+async function fetchSystemSnapshots(
+  sinceIso: string | null,
+  vendorProductId?: string,
+): Promise<SnapshotDbRow[]> {
   const admin = adminClient();
-  const PAGE = 1000;
-  const rows: SnapshotDbRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await admin
-      .from("inventory_snapshots")
+  return fetchAllPages<SnapshotDbRow>("snapshots", (from, to) => {
+    let q = admin
+      .from("inventory_system_snapshots" as never)
       .select(
         "vendor_product_id, counted_at, created_at, qty_cases, qty_picked_cases, pallets_on_hand, notes",
-      )
-      .eq("count_method", "system")
-      .gte("counted_at", sinceIso)
+      );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let qa = q as any;
+    if (sinceIso !== null) qa = qa.gte("counted_at", sinceIso);
+    if (vendorProductId) qa = qa.eq("vendor_product_id", vendorProductId);
+    return qa
       .order("counted_at", { ascending: true })
       .order("id", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error("snapshots fetch failed: " + error.message);
-    rows.push(...((data ?? []) as SnapshotDbRow[]));
-    if (!data || data.length < PAGE) break;
-    if (offset > 20_000) throw new Error("snapshots fetch runaway: >20k rows");
-  }
-  return rows;
+      .range(from, to);
+  });
 }
 
 interface OpenLineJoin extends OpenOrderLineInput {
@@ -214,34 +249,52 @@ interface OpenLineJoin extends OpenOrderLineInput {
 /** Open (confirmed, unshipped, non-METRO) order lines with customer names. */
 async function fetchOpenOrderLines(): Promise<OpenLineJoin[]> {
   const admin = adminClient();
-  const { data: orders, error } = await admin
-    .from("customer_orders")
-    .select("id, order_number, customer_id, status, requested_date")
-    .in("status", OPEN_ORDER_STATUSES)
-    .not("order_number", "like", "METRO-%")
-    .limit(500);
-  if (error) throw new Error("open orders fetch failed: " + error.message);
-  const rows = orders ?? [];
-  if (rows.length === 0) return [];
+  const orders = await fetchAllPages<{
+    id: string;
+    order_number: string | null;
+    customer_id: string;
+    status: string;
+    requested_date: string | null;
+  }>("open orders", (from, to) =>
+    admin
+      .from("customer_orders")
+      .select("id, order_number, customer_id, status, requested_date")
+      .in("status", OPEN_ORDER_STATUSES)
+      // Null-safe METRO exclusion: .not("order_number","like",...) also drops
+      // rows whose order_number IS NULL (SQL three-valued logic).
+      .or("order_number.is.null,order_number.not.like.METRO-%")
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  if (orders.length === 0) return [];
 
-  const customerIds = Array.from(new Set(rows.map((o) => o.customer_id)));
-  const { data: customers } = await admin
+  const customerIds = Array.from(new Set(orders.map((o) => o.customer_id)));
+  const { data: customers, error: custErr } = await admin
     .from("companies")
     .select("id, name")
     .in("id", customerIds);
+  if (custErr) throw new Error("order customers fetch failed: " + custErr.message);
   const nameById = new Map((customers ?? []).map((c) => [c.id, c.name]));
 
-  const { data: lines, error: lineErr } = await admin
-    .from("customer_order_lines")
-    .select("order_id, vendor_product_id, qty_cases, qty_shipped_cases")
-    .in(
-      "order_id",
-      rows.map((o) => o.id),
-    );
-  if (lineErr) throw new Error("open order lines fetch failed: " + lineErr.message);
+  const lines = await fetchAllPages<{
+    order_id: string;
+    vendor_product_id: string | null;
+    qty_cases: number;
+    qty_shipped_cases: number | null;
+  }>("open order lines", (from, to) =>
+    admin
+      .from("customer_order_lines")
+      .select("order_id, vendor_product_id, qty_cases, qty_shipped_cases")
+      .in(
+        "order_id",
+        orders.map((o) => o.id),
+      )
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  const orderById = new Map(rows.map((o) => [o.id, o]));
-  return (lines ?? []).map((l) => {
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+  return lines.map((l) => {
     const o = orderById.get(l.order_id)!;
     return {
       orderId: l.order_id,
@@ -349,22 +402,53 @@ async function fetchFeedHealth(
     null,
   );
 
-  const byDay = new Map<string, { rowCount: number; totalCases: number; ingestedAt: string | null }>();
+  // Group by exact batch (counted_at) first, then keep the newest batch per
+  // ET day. Summing a day's batches directly would double-count the days
+  // where two reports landed (e.g. the 07-24 aging-report double).
+  const byBatch = new Map<
+    string,
+    { day: string; rowCount: number; totalCases: number; ingestedAt: string | null }
+  >();
   for (const s of snapshots) {
-    const day = etDayKey(s.counted_at);
-    const e = byDay.get(day) ?? { rowCount: 0, totalCases: 0, ingestedAt: null };
+    const e =
+      byBatch.get(s.counted_at) ??
+      { day: etDayKey(s.counted_at), rowCount: 0, totalCases: 0, ingestedAt: null };
     e.rowCount += 1;
     e.totalCases += s.qty_cases + (s.qty_picked_cases ?? 0);
     if (e.ingestedAt === null || s.created_at > e.ingestedAt) e.ingestedAt = s.created_at;
-    byDay.set(day, e);
+    byBatch.set(s.counted_at, e);
+  }
+  const byDay = new Map<
+    string,
+    { countedAt: string; rowCount: number; totalCases: number; ingestedAt: string | null }
+  >();
+  for (const [countedAt, b] of byBatch) {
+    const prev = byDay.get(b.day);
+    if (!prev || countedAt > prev.countedAt) {
+      byDay.set(b.day, {
+        countedAt,
+        rowCount: b.rowCount,
+        totalCases: b.totalCases,
+        ingestedAt: b.ingestedAt,
+      });
+    }
   }
   const days = Array.from(byDay.keys()).sort().reverse();
   const reportDays = days.slice(0, 14);
 
-  const { data: jobs } = await admin
+  const { data: jobs, error: jobsErr } = await admin
     .from("sync_state")
     .select("job, account, last_success_at, last_status")
     .order("job");
+  if (jobsErr) throw new Error("sync state fetch failed: " + jobsErr.message);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { count: unmatchedCount, error: dqErr } = await (admin as any)
+    .from("data_quality_log")
+    .select("id", { count: "exact", head: true })
+    .eq("rule", "unis_unmatched_sku")
+    .is("resolved_at", null);
+  if (dqErr) throw new Error("data quality fetch failed: " + dqErr.message);
 
   const ingestedAt = latestCountedAt
     ? (byDay.get(etDayKey(latestCountedAt))?.ingestedAt ?? null)
@@ -388,6 +472,7 @@ async function fetchFeedHealth(
       totalCases: byDay.get(day)!.totalCases,
       ingestedAt: byDay.get(day)!.ingestedAt,
     })),
+    unmatchedSkus: unmatchedCount ?? 0,
   };
 }
 
@@ -433,17 +518,19 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
   );
   const categoryByCanonical = new Map<string, string>();
   if (canonicalIds.length > 0) {
-    const { data: canon } = await admin
+    const { data: canon, error: canonErr } = await admin
       .from("canonical_products" as never)
       .select("id, category_id")
       .in("id", canonicalIds);
+    if (canonErr) throw new Error("canonical products fetch failed: " + canonErr.message);
     const canonRows = (canon ?? []) as Array<{ id: string; category_id: string | null }>;
     const catIds = Array.from(
       new Set(canonRows.map((c) => c.category_id).filter((x): x is string => x !== null)),
     );
-    const { data: cats } = catIds.length
+    const { data: cats, error: catErr } = catIds.length
       ? await admin.from("product_categories" as never).select("id, name").in("id", catIds)
-      : { data: [] };
+      : { data: [], error: null };
+    if (catErr) throw new Error("categories fetch failed: " + catErr.message);
     const nameById = new Map(
       ((cats ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name]),
     );
@@ -481,13 +568,14 @@ interface WarehouseSettingsRow {
 /** The Savannah hub: the (single) location the UNIS snapshots report against. */
 export async function fetchSavannahLocationId(): Promise<string | null> {
   const admin = adminClient();
-  const { data } = await admin
-    .from("inventory_snapshots")
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (admin as any)
+    .from("inventory_system_snapshots")
     .select("location_id")
-    .eq("count_method", "system")
     .order("counted_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error("location fetch failed: " + error.message);
   return data?.location_id ?? null;
 }
 
@@ -550,22 +638,52 @@ function weeklyBuckets(
   return { consumption, receipts };
 }
 
-export async function fetchInventoryDashboard(nowIso: string): Promise<InventoryDashboardData> {
+/**
+ * Shared dashboard assembly. fetchSkuDetail reuses this instead of running
+ * its own second copy of every query (the detail page previously assembled
+ * the entire dashboard twice per render).
+ */
+interface DashboardCore {
+  data: InventoryDashboardData;
+  openLines: OpenLineJoin[];
+  inboundJoin: InboundJoin;
+  costs: Map<string, { cost: number; approx: boolean }>;
+  reportDaysAsc: string[];
+}
+
+async function fetchInventoryDashboardCore(nowIso: string): Promise<DashboardCore> {
   const todayKey = etDayKey(nowIso);
   const sinceIso = new Date(new Date(nowIso).getTime() - 140 * 86_400_000).toISOString();
 
   const savannahId = await fetchSavannahLocationId();
-  const [snapshots, openLines, inboundJoin, costs, settings] = await Promise.all([
-    fetchSystemSnapshots(sinceIso),
-    fetchOpenOrderLines(),
-    fetchInboundOpen(),
-    fetchCurrentCosts(),
-    fetchWarehouseSettings(savannahId),
-  ]);
+  const [snapshots, openLines, inboundJoin, costs, settings, orderFacts] =
+    await Promise.all([
+      fetchSystemSnapshots(sinceIso),
+      fetchOpenOrderLines(),
+      fetchInboundOpen(),
+      fetchCurrentCosts(),
+      fetchWarehouseSettings(savannahId),
+      fetchOrderLineFacts(),
+    ]);
 
   const feed = await fetchFeedHealth(snapshots, nowIso, todayKey);
   const bySku = toSnapshotInputs(snapshots);
   const inboundLines = inboundLineInputs(inboundJoin);
+
+  // Every ET day with a system report (any SKU), ascending — the alignment
+  // grid for tombstone zeros in per-SKU series.
+  const reportDaysAsc = Array.from(
+    new Set(snapshots.map((s) => etDayKey(s.counted_at))),
+  ).sort();
+
+  // P90 order size per SKU from real order lines.
+  const linesByVp = new Map<string, number[]>();
+  for (const f of orderFacts) {
+    if (!f.vendorProductId) continue;
+    const list = linesByVp.get(f.vendorProductId) ?? [];
+    list.push(f.cases);
+    linesByVp.set(f.vendorProductId, list);
+  }
 
   // Row universe: snapshot SKUs + settings rows + open inbound lines.
   const ids = new Set<string>([
@@ -582,19 +700,17 @@ export async function fetchInventoryDashboard(nowIso: string): Promise<Inventory
     const vp = info.get(id);
     if (!vp) continue; // FK guarantees existence; missing means a torn read
     const snaps = bySku.get(id) ?? [];
-    const series = buildDailySeries(snaps);
+    const series = buildDailySeries(snaps, reportDaysAsc);
     const hasHistory = series.length > 0;
     const latest = hasHistory ? series[series.length - 1] : null;
+    // Tombstone points give absent-from-newest-report SKUs an explicit zero,
+    // so `latest` IS current state whenever history exists at all.
+    const current = latest;
     const inNewestBatch =
-      latest !== null && newestBatchKey !== null && latest.day === newestBatchKey;
-
-    // Tombstone: history exists but the SKU is absent from the newest report:
-    // it has physically left the warehouse (sold to zero or delisted).
-    const current = inNewestBatch
-      ? latest!
-      : hasHistory
-        ? { ...latest!, available: 0, staged: 0, physical: 0, pallets: 0 }
-        : null;
+      latest !== null &&
+      newestBatchKey !== null &&
+      latest.day === newestBatchKey &&
+      latest.tombstone !== true;
 
     const skuOpenLines = openLines.filter((l) => l.vendorProductId === id);
     const ordersOpen = computeOrdersOpen(skuOpenLines);
@@ -652,6 +768,8 @@ export async function fetchInventoryDashboard(nowIso: string): Promise<Inventory
       cover,
       bucket,
       reconcile: reconcileFlag(staged, ordersOpen),
+      reconcileGap: Math.max(0, staged - ordersOpen),
+      p90OrderCases: p90(linesByVp.get(id) ?? [], ORDERS_OF_COVER_MIN_LINES),
       ...(() => {
         const wb = weeklyBuckets(movement, todayKey, velocity.windowWeeks || 13);
         return { weeklyConsumption: wb.consumption, weeklyReceipts: wb.receipts };
@@ -690,57 +808,95 @@ export async function fetchInventoryDashboard(nowIso: string): Promise<Inventory
     (a, b) => b.valueAtCost - a.valueAtCost,
   );
 
-  const expectedOrders = customerCadences(await fetchOrderLineFacts(), todayKey);
+  const expectedOrders = customerCadences(orderFacts, todayKey);
 
   return {
-    rows,
-    feed,
-    nextArrival,
-    inboundTotalCases: inboundLines.reduce((s, l) => s + l.qtyCases, 0),
-    todayKey,
-    categories,
-    expectedOrders,
+    data: {
+      rows,
+      feed,
+      nextArrival,
+      inboundTotalCases: inboundLines.reduce((s, l) => s + l.qtyCases, 0),
+      todayKey,
+      categories,
+      expectedOrders,
+    },
+    openLines,
+    inboundJoin,
+    costs,
+    reportDaysAsc,
   };
+}
+
+export async function fetchInventoryDashboard(nowIso: string): Promise<InventoryDashboardData> {
+  return (await fetchInventoryDashboardCore(nowIso)).data;
+}
+
+interface OrderLineFact {
+  customerName: string;
+  day: string;
+  sku: string;
+  cases: number;
+  vendorProductId: string | null;
 }
 
 /**
  * Every real order line as a (customer, day, sku, cases) fact for the
- * expected-orders cadence engine. Non-METRO, non-cancelled orders only.
+ * expected-orders cadence engine and the P90 order-size stat. Real =
+ * REAL_ORDER_STATUSES (confirmed onward), non-METRO. Day = the order date
+ * (quoted_at), which is what a reorder cadence keys on.
  */
-async function fetchOrderLineFacts(): Promise<
-  Array<{ customerName: string; day: string; sku: string; cases: number }>
-> {
+async function fetchOrderLineFacts(): Promise<OrderLineFact[]> {
   const admin = adminClient();
-  const { data: orders } = await admin
-    .from("customer_orders")
-    .select("id, customer_id, quoted_at")
-    .or("order_number.is.null,order_number.not.like.METRO-%")
-    .neq("status", "cancelled")
-    .limit(1000);
-  if (!orders || orders.length === 0) return [];
-
-  const [{ data: lines }, { data: customers }] = await Promise.all([
+  const orders = await fetchAllPages<{
+    id: string;
+    customer_id: string;
+    quoted_at: string;
+  }>("order facts", (from, to) =>
     admin
-      .from("customer_order_lines")
-      .select("order_id, sku, qty_cases")
-      .in(
-        "order_id",
-        orders.map((o) => o.id),
-      ),
+      .from("customer_orders")
+      .select("id, customer_id, quoted_at")
+      .or("order_number.is.null,order_number.not.like.METRO-%")
+      .in("status", REAL_ORDER_STATUSES)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  if (orders.length === 0) return [];
+
+  const [lines, customersRes] = await Promise.all([
+    fetchAllPages<{
+      order_id: string;
+      sku: string | null;
+      qty_cases: number;
+      vendor_product_id: string | null;
+    }>("order fact lines", (from, to) =>
+      admin
+        .from("customer_order_lines")
+        .select("order_id, sku, qty_cases, vendor_product_id")
+        .in(
+          "order_id",
+          orders.map((o) => o.id),
+        )
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
     admin
       .from("companies")
       .select("id, name")
       .in("id", Array.from(new Set(orders.map((o) => o.customer_id)))),
   ]);
-  const nameById = new Map((customers ?? []).map((c) => [c.id, c.name]));
+  if (customersRes.error) {
+    throw new Error("fact customers fetch failed: " + customersRes.error.message);
+  }
+  const nameById = new Map((customersRes.data ?? []).map((c) => [c.id, c.name]));
   const orderById = new Map(orders.map((o) => [o.id, o]));
-  return (lines ?? []).map((l) => {
+  return lines.map((l) => {
     const o = orderById.get(l.order_id)!;
     return {
       customerName: nameById.get(o.customer_id) ?? "unknown",
       day: etDayKey(o.quoted_at),
       sku: l.sku ?? "unknown",
       cases: l.qty_cases,
+      vendorProductId: l.vendor_product_id,
     };
   });
 }
@@ -749,31 +905,40 @@ export async function fetchSkuDetail(
   vendorProductId: string,
   nowIso: string,
 ): Promise<SkuDetailData | null> {
-  const dashboard = await fetchInventoryDashboard(nowIso);
-  const row = dashboard.rows.find((r) => r.vendorProductId === vendorProductId);
+  const core = await fetchInventoryDashboardCore(nowIso);
+  const row = core.data.rows.find((r) => r.vendorProductId === vendorProductId);
   if (!row) return null;
 
   const admin = adminClient();
-  const todayKey = dashboard.todayKey;
-  const sinceIso = new Date(new Date(nowIso).getTime() - 140 * 86_400_000).toISOString();
+  const todayKey = core.data.todayKey;
 
-  const [snapshots, openLines, inboundJoin, costs, info] = await Promise.all([
-    fetchSystemSnapshots(sinceIso),
-    fetchOpenOrderLines(),
-    fetchInboundOpen(),
-    fetchCurrentCosts(),
+  // Full history for THIS SKU (the dashboard core is windowed to 140 days;
+  // lifetime stats should not silently truncate at the window edge).
+  const [fullSnapshots, info] = await Promise.all([
+    fetchSystemSnapshots(null, vendorProductId),
     fetchVendorProductInfo([vendorProductId]),
   ]);
 
+  // Tombstone grid: the SKU's own observed days plus the core window's global
+  // report days (global days beyond the window are unknowable without a full
+  // global fetch; history before the window is effectively continuous).
+  const gridDays = Array.from(
+    new Set([
+      ...fullSnapshots.map((s) => etDayKey(s.counted_at)),
+      ...core.reportDaysAsc,
+    ]),
+  ).sort();
   const series = buildDailySeries(
-    toSnapshotInputs(snapshots).get(vendorProductId) ?? [],
+    toSnapshotInputs(fullSnapshots).get(vendorProductId) ?? [],
+    gridDays,
   );
-  const movement = buildMovement(series)
+  const fullMovement = buildMovement(series);
+  const movement = fullMovement
     .filter((m) => dayDiffSafe(m.day, todayKey) <= 60)
     .reverse();
 
-  const skuOpen = openLines.filter((l) => l.vendorProductId === vendorProductId);
-  const inboundLines = inboundLineInputs(inboundJoin).filter(
+  const skuOpen = core.openLines.filter((l) => l.vendorProductId === vendorProductId);
+  const inboundLines = inboundLineInputs(core.inboundJoin).filter(
     (l) => l.vendorProductId === vendorProductId,
   );
 
@@ -785,14 +950,15 @@ export async function fetchSkuDetail(
   );
   const dnRefs = await fetchDnRefs(admin, dnTokens);
 
-  const stats = consumptionStats(buildMovement(series), todayKey);
+  const stats = consumptionStats(fullMovement, todayKey);
 
-  const { data: costRows } = await admin
+  const { data: costRows, error: costErr } = await admin
     .from("vendor_costs")
     .select("effective_from, effective_to, cost_per_case, source")
     .eq("vendor_product_id", vendorProductId)
     .order("effective_from", { ascending: false })
     .limit(20);
+  if (costErr) throw new Error("cost history fetch failed: " + costErr.message);
   const costHistory = (costRows ?? []).map((c) => ({
     effectiveFrom: c.effective_from,
     effectiveTo: c.effective_to,
@@ -808,7 +974,7 @@ export async function fetchSkuDetail(
     packDisplay: vp?.packDisplay ?? null,
     casesPerPallet: vp?.casesPerPallet ?? null,
     caseWeightLb: vp?.caseWeightLb ?? null,
-    costPerCase: costs.get(vendorProductId)?.cost ?? null,
+    costPerCase: core.costs.get(vendorProductId)?.cost ?? null,
     movement,
     openOrderLines: skuOpen.map((l) => ({
       orderNumber: l.orderNumber,
@@ -819,7 +985,7 @@ export async function fetchSkuDetail(
     buyers,
     inboundLines,
     series,
-    feed: dashboard.feed,
+    feed: core.data.feed,
     todayKey,
     dnRefs,
     stats,
@@ -833,27 +999,30 @@ async function fetchBoughtWith(
   admin: ReturnType<typeof adminClient>,
   vendorProductId: string,
 ): Promise<SkuDetailData["boughtWith"]> {
-  const { data: myLines } = await admin
+  const { data: myLines, error: mineErr } = await admin
     .from("customer_order_lines")
     .select("order_id")
     .eq("vendor_product_id", vendorProductId);
+  if (mineErr) throw new Error("bought-with lines fetch failed: " + mineErr.message);
   const orderIds = Array.from(new Set((myLines ?? []).map((l) => l.order_id)));
   if (orderIds.length === 0) return [];
 
-  const { data: orders } = await admin
+  const { data: orders, error: ordErr } = await admin
     .from("customer_orders")
     .select("id")
     .in("id", orderIds)
     .or("order_number.is.null,order_number.not.like.METRO-%")
-    .neq("status", "cancelled");
+    .in("status", REAL_ORDER_STATUSES);
+  if (ordErr) throw new Error("bought-with orders fetch failed: " + ordErr.message);
   const realOrderIds = (orders ?? []).map((o) => o.id);
   if (realOrderIds.length === 0) return [];
 
-  const { data: siblings } = await admin
+  const { data: siblings, error: sibErr } = await admin
     .from("customer_order_lines")
     .select("order_id, vendor_product_id, sku, description, qty_cases")
     .in("order_id", realOrderIds)
     .neq("vendor_product_id", vendorProductId);
+  if (sibErr) throw new Error("bought-with siblings fetch failed: " + sibErr.message);
 
   const byVp = new Map<
     string,
@@ -890,10 +1059,11 @@ async function fetchDnRefs(
   const out: SkuDetailData["dnRefs"] = {};
   if (dnTokens.length === 0) return out;
 
-  const { data: customers } = await admin
+  const { data: customers, error: custErr } = await admin
     .from("companies")
     .select("name")
     .eq("type", "customer");
+  if (custErr) throw new Error("dn customers fetch failed: " + custErr.message);
   const customerNames = (customers ?? []).map((c) => c.name);
 
   const orClauses = dnTokens
@@ -901,12 +1071,13 @@ async function fetchDnRefs(
     .join(",");
   // interactions is outside the hand-typed database.types.ts — cast per
   // codebase convention and assert the row shape on the result.
-  const { data: emailRows } = await admin
+  const { data: emailRows, error: emailErr } = await admin
     .from("interactions" as never)
     .select("occurred_at, email_subject, body")
     .or(orClauses)
     .order("occurred_at", { ascending: false })
     .limit(20);
+  if (emailErr) throw new Error("dn email fetch failed: " + emailErr.message);
   const emails = (emailRows ?? []) as Array<{
     occurred_at: string;
     email_subject: string | null;
@@ -944,26 +1115,29 @@ async function fetchBuyers(
   vendorProductId: string,
   todayKey: string,
 ): Promise<SkuDetailData["buyers"]> {
-  const { data: lines } = await admin
+  const { data: lines, error: lineErr } = await admin
     .from("customer_order_lines")
     .select("order_id, qty_cases")
     .eq("vendor_product_id", vendorProductId);
+  if (lineErr) throw new Error("buyer lines fetch failed: " + lineErr.message);
   if (!lines || lines.length === 0) return [];
 
   const orderIds = Array.from(new Set(lines.map((l) => l.order_id)));
-  const { data: orders } = await admin
+  const { data: orders, error: ordErr } = await admin
     .from("customer_orders")
     .select("id, customer_id, order_number, status, quoted_at")
     .in("id", orderIds)
-    .not("order_number", "like", "METRO-%")
-    .neq("status", "cancelled");
+    .or("order_number.is.null,order_number.not.like.METRO-%")
+    .in("status", REAL_ORDER_STATUSES);
+  if (ordErr) throw new Error("buyer orders fetch failed: " + ordErr.message);
   if (!orders || orders.length === 0) return [];
 
   const customerIds = Array.from(new Set(orders.map((o) => o.customer_id)));
-  const { data: customers } = await admin
+  const { data: customers, error: custErr } = await admin
     .from("companies")
     .select("id, name")
     .in("id", customerIds);
+  if (custErr) throw new Error("buyer customers fetch failed: " + custErr.message);
   const nameById = new Map((customers ?? []).map((c) => [c.id, c.name]));
   const orderById = new Map(orders.map((o) => [o.id, o]));
 
@@ -974,7 +1148,7 @@ async function fetchBuyers(
   >();
   for (const l of lines) {
     const o = orderById.get(l.order_id);
-    if (!o) continue; // METRO or cancelled
+    if (!o) continue; // METRO, cancelled, or not-yet-real
     const day = etDayKey(o.quoted_at);
     const e = byCustomer.get(o.customer_id) ?? { cases26w: 0, orderDays: [] };
     if (day >= cutoff26w) e.cases26w += l.qty_cases;
@@ -986,12 +1160,10 @@ async function fetchBuyers(
     .map(([customerId, e]) => {
       const days = Array.from(new Set(e.orderDays)).sort();
       const last = days[days.length - 1] ?? null;
-      let typicalGapDays: number | null = null;
-      if (days.length >= 3) {
-        const gaps = days.slice(1).map((d, i) => dayDiffSafe(days[i], d));
-        gaps.sort((a, b) => a - b);
-        typicalGapDays = gaps[Math.floor(gaps.length / 2)];
-      }
+      const typicalGapDays =
+        days.length >= 3
+          ? medianGap(days.slice(1).map((d, i) => dayDiffSafe(days[i], d)))
+          : null;
       const sinceLast = last ? dayDiffSafe(last, todayKey) : null;
       const overdueDays =
         typicalGapDays !== null && sinceLast !== null && sinceLast > 1.5 * typicalGapDays
@@ -1024,20 +1196,22 @@ export async function fetchInboundShipments(): Promise<{
   const rows = shipments ?? [];
   if (rows.length === 0) return { open: [], received: [] };
 
-  const { data: lines } = await admin
+  const { data: lines, error: lineErr } = await admin
     .from("inbound_shipment_lines")
     .select("id, shipment_id, vendor_product_id, sku, qty_cases")
     .in(
       "shipment_id",
       rows.map((s) => s.id),
     );
+  if (lineErr) throw new Error("inbound shipment lines fetch failed: " + lineErr.message);
 
   const vendorIds = Array.from(
     new Set(rows.map((s) => s.vendor_id).filter((x): x is string => x !== null)),
   );
-  const { data: vendors } = vendorIds.length
+  const { data: vendors, error: vendErr } = vendorIds.length
     ? await admin.from("companies").select("id, name").in("id", vendorIds)
-    : { data: [] as Array<{ id: string; name: string }> };
+    : { data: [] as Array<{ id: string; name: string }>, error: null };
+  if (vendErr) throw new Error("inbound vendors fetch failed: " + vendErr.message);
   const vendorNameById = new Map((vendors ?? []).map((v) => [v.id, v.name]));
 
   const vpIds = Array.from(
@@ -1094,13 +1268,16 @@ export async function fetchInboundFormOptions(): Promise<{
 }> {
   const admin = adminClient();
   const savannahId = await fetchSavannahLocationId();
-  const [{ data: vendors }, dashboardIds] = await Promise.all([
+  const [vendorsRes, dashboardIds] = await Promise.all([
     admin.from("companies").select("id, name").eq("type", "vendor").order("name"),
     fetchWarehouseSettings(savannahId),
   ]);
+  if (vendorsRes.error) {
+    throw new Error("vendors fetch failed: " + vendorsRes.error.message);
+  }
   const info = await fetchVendorProductInfo(Array.from(dashboardIds.keys()));
   return {
-    vendors: vendors ?? [],
+    vendors: vendorsRes.data ?? [],
     skus: Array.from(info.values())
       .filter((v) => !v.inactive)
       .map((v) => ({ vendorProductId: v.id, sku: v.sku, description: v.description }))

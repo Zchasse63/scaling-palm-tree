@@ -80,6 +80,26 @@ export function finiteOrNull(n: number | null | undefined): number | null {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Median of gap-day values. Even counts average the two middle values —
+ * gaps of [7, 21] should read 14, not 21 (the naive upper-middle pick).
+ */
+export function medianGap(gaps: number[]): number | null {
+  if (gaps.length === 0) return null;
+  const sorted = gaps.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/** P90 of a distribution (order-line cases). Null under `minCount` samples. */
+export function p90(values: number[], minCount: number): number | null {
+  if (values.length < minCount) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.9) - 1)];
+}
+
 // ---------------------------------------------------------------- series
 
 /**
@@ -87,28 +107,52 @@ export function finiteOrNull(n: number | null | undefined): number | null {
  * One point per day: the max(counted_at) row wins (dedupes the 07-24
  * aging-report double). physical = qty + (picked ?? 0) (07-05 baseline
  * rows carry NULL picked).
+ *
+ * When `reportDays` (every ET day with a system report, any SKU) is given,
+ * report days after the SKU's first appearance where the SKU is absent get an
+ * explicit tombstone zero. UNIS omits sold-out SKUs, so without these points
+ * a sell-to-zero never shows in movement and velocity misses the final draw.
  */
-export function buildDailySeries(snapshots: SnapshotInput[]): DayPoint[] {
+export function buildDailySeries(
+  snapshots: SnapshotInput[],
+  reportDays?: string[],
+): DayPoint[] {
   const byDay = new Map<string, SnapshotInput>();
   for (const s of snapshots) {
     const day = etDayKey(s.countedAt);
     const prev = byDay.get(day);
     if (!prev || s.countedAt > prev.countedAt) byDay.set(day, s);
   }
-  return Array.from(byDay.entries())
-    .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([day, s]) => {
-      const staged = s.qtyPickedCases ?? 0;
-      return {
-        day,
-        countedAt: s.countedAt,
-        available: s.qtyCases,
-        staged,
-        physical: s.qtyCases + staged,
-        pallets: s.palletsOnHand,
-        notes: s.notes,
-      };
-    });
+  const points: DayPoint[] = Array.from(byDay.entries()).map(([day, s]) => {
+    const staged = s.qtyPickedCases ?? 0;
+    return {
+      day,
+      countedAt: s.countedAt,
+      available: s.qtyCases,
+      staged,
+      physical: s.qtyCases + staged,
+      pallets: s.palletsOnHand,
+      notes: s.notes,
+    };
+  });
+  if (reportDays && byDay.size > 0) {
+    const firstDay = Array.from(byDay.keys()).sort()[0];
+    for (const day of reportDays) {
+      if (day > firstDay && !byDay.has(day)) {
+        points.push({
+          day,
+          countedAt: day + "T23:59:59Z", // synthetic; ordering only
+          available: 0,
+          staged: 0,
+          physical: 0,
+          pallets: 0,
+          notes: null,
+          tombstone: true,
+        });
+      }
+    }
+  }
+  return points.sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 
 /** Day-over-day movement; a physical increase is a receipt, never negative consumption. */
@@ -329,12 +373,10 @@ export function customerCadences(
   for (const [customerName, e] of byCustomer) {
     const days = Array.from(e.days).sort();
     const last = days[days.length - 1];
-    let typicalGapDays: number | null = null;
-    if (days.length >= 3) {
-      const gaps = days.slice(1).map((d, i) => dayDiff(days[i], d));
-      gaps.sort((a, b) => a - b);
-      typicalGapDays = gaps[Math.floor(gaps.length / 2)];
-    }
+    const typicalGapDays =
+      days.length >= 3
+        ? medianGap(days.slice(1).map((d, i) => dayDiff(days[i], d)))
+        : null;
     const dueInDays =
       typicalGapDays !== null
         ? typicalGapDays - dayDiff(last, todayKey)
@@ -390,75 +432,63 @@ export interface RunwayArgs {
   todayKey: string;
   available: number;
   velocity: Velocity;
-  openOrders: OpenOrderLineInput[];
   inbound: InboundLineInput[];
   floor: number | null;
   horizonWeeks?: number;
 }
 
 /**
- * Projection semantics (UIUX spec section 5): start at Available; step down by
- * each open order at its requested date (undated orders step today); the
- * segment through the last known commitment is "known" (solid); beyond it the
- * line declines at trailing velocity ("inferred", dashed) — velocity is NOT
- * applied on top of known commitments, which would double-count. Containers
- * jump the line up at their ETA in both phases.
+ * Canonical projection — the ONE forward math shared by the runway chart and
+ * the ACT NOW bucket test (computeBucket's positionAtLeadTime is this
+ * function evaluated at today + lead time, so the chart and the badge can
+ * never disagree).
+ *
+ * Start at Available-to-promise. Open commitments are already netted out of
+ * ATP, so they are NOT re-played as steps (the previous version re-added
+ * them and stepped them back down, which showed an inflated starting
+ * position). The line declines at trailing velocity from today and jumps up
+ * at container ETAs. All future points are velocity-inferred (dashed); with
+ * no velocity the line holds flat so the operator sees "no demand signal",
+ * not a guess.
+ *
+ * Deliberate conservative bias, documented in PLAN section 3: trailing
+ * velocity includes the demand behind today's open orders, which ATP has
+ * also subtracted. Until real per-customer forecasting exists, over-warning
+ * beats under-warning.
  */
 export function projectRunway(a: RunwayArgs): Runway {
   const horizonDays = (a.horizonWeeks ?? RUNWAY_HORIZON_WEEKS) * 7;
   const rate = a.velocity.ratePerWeek;
   const dailyRate = rate !== null && rate > 0 ? rate / 7 : 0;
 
-  const ordersByDay = new Map<string, number>();
-  let lastCommitmentDay = a.todayKey;
-  for (const o of a.openOrders) {
-    const open = Math.max(0, o.qtyCases - o.qtyShippedCases);
-    if (open === 0) continue;
-    let day = o.requestedDate ?? a.todayKey;
-    if (day < a.todayKey) day = a.todayKey;
-    if (day > lastCommitmentDay) lastCommitmentDay = day;
-    ordersByDay.set(day, (ordersByDay.get(day) ?? 0) + open);
-  }
-
-  const arrivalsByDay = new Map<string, { qty: number; containerNo: string | null }>();
+  const arrivalsByDay = new Map<string, { qty: number; labels: string[] }>();
   for (const l of a.inbound) {
     if (!l.eta || l.qtyCases <= 0) continue;
-    const prev = arrivalsByDay.get(l.eta);
-    arrivalsByDay.set(l.eta, {
-      qty: (prev?.qty ?? 0) + l.qtyCases,
-      containerNo: prev?.containerNo ?? l.containerNo,
-    });
+    const e = arrivalsByDay.get(l.eta) ?? { qty: 0, labels: [] };
+    e.qty += l.qtyCases;
+    if (l.containerNo && !e.labels.includes(l.containerNo)) e.labels.push(l.containerNo);
+    arrivalsByDay.set(l.eta, e);
   }
 
-  // ATP already subtracts open orders; the projection re-plays them on their
-  // dates, so start from the pre-commitment figure to avoid double-counting.
-  const totalOpen = Array.from(ordersByDay.values()).reduce((s, q) => s + q, 0);
-  let value = a.available + totalOpen;
-
+  let value = a.available;
   const points = [];
   const arrivals: Runway["arrivals"] = [];
   let floorCrossDay: string | null = null;
-  const noVelocity = rate === null;
 
   for (let i = 0; i <= horizonDays; i++) {
     const day = addDays(a.todayKey, i);
-    const inferred = day > lastCommitmentDay;
-    if (i > 0 && inferred && !noVelocity) value -= dailyRate;
-    const orderDrop = ordersByDay.get(day);
-    if (orderDrop) value -= orderDrop;
+    if (i > 0) value -= dailyRate;
     const arrival = arrivalsByDay.get(day);
     if (arrival) {
       value += arrival.qty;
-      arrivals.push({ day, qty: arrival.qty, containerNo: arrival.containerNo });
-    }
-    if (noVelocity && inferred && day > addDays(lastCommitmentDay, 0)) {
-      // No velocity: the projection ends at the last known commitment.
-      if (points.length > 0 && points[points.length - 1].day === lastCommitmentDay) {
-        break;
-      }
+      arrivals.push({
+        day,
+        qty: arrival.qty,
+        containerNo: arrival.labels.length > 0 ? arrival.labels.join(" / ") : null,
+      });
     }
     const v = finiteOrNull(value) ?? 0;
-    points.push({ day, value: Math.round(v * 100) / 100, inferred });
+    points.push({ day, value: Math.round(v * 100) / 100, inferred: i > 0 });
     if (floorCrossDay === null && a.floor !== null && v < a.floor) {
       floorCrossDay = day;
     }

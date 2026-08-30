@@ -33,18 +33,13 @@ export default async function SkuDetailPage({ params }: PageProps) {
   const leadDays = row.leadTimeDays ?? DEFAULT_LEAD_TIME_DAYS;
   const cover = coverLabel(row);
 
+  // Canonical projection: same math as the ACT NOW test in computeBucket.
+  // Open commitments are already netted out of Available, so they are not
+  // re-played as steps.
   const runway = projectRunway({
     todayKey,
     available: row.available,
     velocity: row.velocity,
-    openOrders: detail.openOrderLines.map((l) => ({
-      vendorProductId: row.vendorProductId,
-      qtyCases: l.qtyOpen,
-      qtyShippedCases: 0,
-      orderNumber: l.orderNumber,
-      customerName: l.customerName,
-      requestedDate: l.requestedDate,
-    })),
     inbound: detail.inboundLines,
     floor: row.floor,
   });
