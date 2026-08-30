@@ -20,7 +20,22 @@ function staleBanner(feed: FeedHealth): React.ReactNode {
       </div>
     );
   }
-  const days = Math.max(2, feed.missingDays.length);
+  // Count the CONSECUTIVE missed run ending at the newest gap — an unrelated
+  // gap two weeks ago must not inflate "no report for N days".
+  const consecutive = (() => {
+    let n = 0;
+    const sorted = feed.missingDays.slice().sort();
+    for (let i = sorted.length - 1; i > 0; i--) {
+      n++;
+      const gap =
+        (new Date(sorted[i] + "T00:00:00Z").getTime() -
+          new Date(sorted[i - 1] + "T00:00:00Z").getTime()) /
+        86_400_000;
+      if (gap !== 1) return n;
+    }
+    return sorted.length;
+  })();
+  const days = Math.max(2, consecutive);
   return (
     <div className="banner-alarm">
       No report for {days} days. Do not promise stock from these figures.
@@ -28,9 +43,15 @@ function staleBanner(feed: FeedHealth): React.ReactNode {
   );
 }
 
-/** First sync job whose last status is not an "ok:" — the degraded signal. */
+/**
+ * Degraded signal from the jobs that feed THIS dashboard only. Other ops jobs
+ * (briefs, intel) use their own status vocabularies and would false-alarm on
+ * an "ok" prefix check.
+ */
+const FEED_JOBS = new Set(["unis_ingest", "inbox_sync"]);
 function pipelineIssue(feed: FeedHealth): { job: string; status: string } | null {
   for (const j of feed.syncJobs) {
+    if (!FEED_JOBS.has(j.job)) continue;
     if (j.lastStatus && !j.lastStatus.startsWith("ok")) {
       return { job: j.job, status: j.lastStatus };
     }

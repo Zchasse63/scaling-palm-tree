@@ -96,6 +96,13 @@ export default async function InboundPage() {
             {fmtInt(dashboard.inboundTotalCases)} cases
           </span>
         </div>
+        <Link
+          href="/admin/inventory/plan"
+          className="mono t-cap"
+          style={{ marginLeft: "auto", color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 3 }}
+        >
+          Plan next container →
+        </Link>
       </div>
 
       {shipments.open.length === 0 ? (

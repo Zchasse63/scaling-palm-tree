@@ -61,10 +61,17 @@ test("INV-01 dashboard renders stamp, KPIs, tabs, and the full table", async ({
   await expect(page.locator("div.t-eyebrow", { hasText: "Cases on hand" })).toBeVisible();
   await expect(page.locator("div.t-eyebrow", { hasText: "Next container" })).toBeVisible();
   await expect(page.locator("nav[aria-label='Status filter'] a", { hasText: "All" })).toBeVisible();
-  // The live warehouse carries ~46 SKUs; assert a healthy row count.
+  // The default tab is worst-first (may land on STOCKOUT with few rows);
+  // the full-universe row count lives on the All tab.
+  await page.goto("/admin/inventory?bucket=all");
+  await expect(page.locator("div.t-h1", { hasText: "Savannah stock" })).toBeVisible({
+    timeout: 15_000,
+  });
   const rowCount = await page.locator(".admin-inventory-row").count();
   expect(rowCount).toBeGreaterThanOrEqual(40);
-  await expect(page.locator("div.t-eyebrow", { hasText: /^Total$/ })).toBeVisible();
+  await expect(
+    page.locator("div.t-eyebrow", { hasText: "Total · this view" }),
+  ).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -262,12 +269,35 @@ test("INV-08 mobile viewport collapses the table with per-cell labels", async ({
 });
 
 // ---------------------------------------------------------------------------
-test("INV-09 unauthenticated /admin/inventory redirects to signin", async ({
+test("INV-09 unauthenticated admin inventory routes all redirect to signin", async ({
   browser,
 }) => {
   const context = await browser.newContext(); // no storageState = signed out
   const page = await context.newPage();
-  await page.goto("/admin/inventory");
-  await page.waitForURL(/\/signin\?next=/, { timeout: 15_000 });
+  for (const path of [
+    "/admin/inventory",
+    "/admin/inventory/inbound",
+    "/admin/inventory/plan",
+  ]) {
+    await page.goto(path);
+    await page.waitForURL(/\/signin\?next=/, { timeout: 15_000 });
+  }
   await context.close();
+});
+
+// ---------------------------------------------------------------------------
+test("INV-10 container planning worksheet renders totals and rows", async ({
+  authenticatedPage,
+}) => {
+  const page = authenticatedPage;
+  await page.goto("/admin/inventory/plan");
+  await expect(
+    page.getByText("Container planning worksheet", { exact: false }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Suggested total", { exact: false })).toBeVisible();
+  await expect(page.getByText("40HC fill", { exact: false })).toBeVisible();
+  // At least one SKU row links back to its detail page.
+  await expect(
+    page.locator('a[href^="/admin/inventory/"]').first(),
+  ).toBeVisible();
 });

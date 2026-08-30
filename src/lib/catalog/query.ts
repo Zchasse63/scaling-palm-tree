@@ -47,7 +47,7 @@ export async function fetchCustomerCatalogs(
   const stats = new Map<string, { skuCount: number; categoryNames: Set<string> }>();
   for (const a of rows) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: catRows, error: catErr } = await (admin as any).rpc(
+    const { data: catRows, error: catErr } = await admin.rpc(
       "fn_catalog_for_customer",
       { p_customer_id: customerId, p_vendor_id: a.vendor_id },
     );
@@ -134,7 +134,7 @@ export async function resolveCustomerCatalogAccess(
     .eq("is_active", true);
   if (slug) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    query = (query as any).eq("slug", slug);
+    query = query.eq("slug", slug);
   }
   const { data, error } = await query;
   if (error) throw new Error("access check failed: " + error.message);
@@ -196,7 +196,7 @@ export async function fetchCatalogForVendorWithPricing(
   const admin = adminClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rowsRes = await (admin as any).rpc("fn_catalog_for_customer", {
+  const rowsRes = await admin.rpc("fn_catalog_for_customer", {
     p_customer_id: customerId,
     p_vendor_id: vendorId,
   });

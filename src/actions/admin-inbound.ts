@@ -57,8 +57,9 @@ export async function createInboundShipmentAction(input: {
     // Header + lines in one transaction (fn_inbound_create). The function
     // also validates each SKU is an active vendor_products row, so a stale
     // form can't file a container against a delisted SKU.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (admin as any).rpc("fn_inbound_create", {
+    // Args cast: generated function-arg types can't express that Postgres
+    // args accept NULL, and vendor/dates/notes are legitimately nullable.
+    const { error } = await admin.rpc("fn_inbound_create", {
       p_vendor_id: input.vendorId,
       p_po_number: input.poNumber,
       p_container_no: input.containerNo,
@@ -70,7 +71,7 @@ export async function createInboundShipmentAction(input: {
         vendor_product_id: l.vendorProductId,
         qty_cases: l.qtyCases,
       })),
-    });
+    } as unknown as Parameters<typeof admin.rpc<"fn_inbound_create">>[1]);
     if (error) return { ok: false, error: error.message };
 
     revalidatePath("/admin/inventory");
@@ -190,7 +191,7 @@ export async function deleteInboundShipmentAction(input: {
     await requireAdmin();
     const admin = adminClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (admin as any).rpc("fn_inbound_delete", {
+    const { error } = await admin.rpc("fn_inbound_delete", {
       p_shipment_id: input.shipmentId,
     });
     if (error) return { ok: false, error: error.message };

@@ -227,7 +227,7 @@ async function fetchSystemSnapshots(
   const admin = adminClient();
   return fetchAllPages<SnapshotDbRow>("snapshots", (from, to) => {
     let q = admin
-      .from("inventory_system_snapshots" as never)
+      .from("inventory_system_snapshots")
       .select(
         "vendor_product_id, counted_at, created_at, qty_cases, qty_picked_cases, pallets_on_hand, notes",
       );
@@ -443,7 +443,7 @@ async function fetchFeedHealth(
   if (jobsErr) throw new Error("sync state fetch failed: " + jobsErr.message);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count: unmatchedCount, error: dqErr } = await (admin as any)
+  const { count: unmatchedCount, error: dqErr } = await admin
     .from("data_quality_log")
     .select("id", { count: "exact", head: true })
     .eq("rule", "unis_unmatched_sku")
@@ -494,7 +494,7 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
   // pack_display / cases_per_pallet / is_active / deleted_at are outside the
   // hand-typed vendor_products Row — cast per codebase convention.
   const { data, error } = await admin
-    .from("vendor_products" as never)
+    .from("vendor_products")
     .select(
       "id, sku, description, pack_display, cases_per_pallet, case_weight_lb, is_active, deleted_at, canonical_product_id",
     )
@@ -519,7 +519,7 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
   const categoryByCanonical = new Map<string, string>();
   if (canonicalIds.length > 0) {
     const { data: canon, error: canonErr } = await admin
-      .from("canonical_products" as never)
+      .from("canonical_products")
       .select("id, category_id")
       .in("id", canonicalIds);
     if (canonErr) throw new Error("canonical products fetch failed: " + canonErr.message);
@@ -528,7 +528,7 @@ async function fetchVendorProductInfo(ids: string[]): Promise<Map<string, Vendor
       new Set(canonRows.map((c) => c.category_id).filter((x): x is string => x !== null)),
     );
     const { data: cats, error: catErr } = catIds.length
-      ? await admin.from("product_categories" as never).select("id, name").in("id", catIds)
+      ? await admin.from("product_categories").select("id, name").in("id", catIds)
       : { data: [], error: null };
     if (catErr) throw new Error("categories fetch failed: " + catErr.message);
     const nameById = new Map(
@@ -569,7 +569,7 @@ interface WarehouseSettingsRow {
 export async function fetchSavannahLocationId(): Promise<string | null> {
   const admin = adminClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (admin as any)
+  const { data, error } = await admin
     .from("inventory_system_snapshots")
     .select("location_id")
     .order("counted_at", { ascending: false })
@@ -1072,7 +1072,7 @@ async function fetchDnRefs(
   // interactions is outside the hand-typed database.types.ts — cast per
   // codebase convention and assert the row shape on the result.
   const { data: emailRows, error: emailErr } = await admin
-    .from("interactions" as never)
+    .from("interactions")
     .select("occurred_at, email_subject, body")
     .or(orClauses)
     .order("occurred_at", { ascending: false })
@@ -1293,18 +1293,25 @@ export async function fetchReceiptChecks(
   const days = targets.map((s) => etDayKey(s.receivedAt!));
   const minIso = addDays(days.slice().sort()[0], -10) + "T00:00:00Z";
   const admin = adminClient();
-  const rows = await fetchAllPages<SnapshotDbRow>("receipt snapshots", (from, to) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (admin as any)
-      .from("inventory_system_snapshots")
-      .select(
-        "vendor_product_id, counted_at, created_at, qty_cases, qty_picked_cases, pallets_on_hand, notes",
-      )
-      .in("vendor_product_id", vpIds)
-      .gte("counted_at", minIso)
-      .order("counted_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to),
+  const rows = await fetchAllPages<SnapshotDbRow>(
+    "receipt snapshots",
+    (from, to) =>
+      admin
+        .from("inventory_system_snapshots")
+        .select(
+          "vendor_product_id, counted_at, created_at, qty_cases, qty_picked_cases, pallets_on_hand, notes",
+        )
+        .in("vendor_product_id", vpIds)
+        .gte("counted_at", minIso)
+        .order("counted_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to) as unknown as PromiseLike<{
+        // Generated view types mark every column nullable (Postgres views
+        // drop NOT NULL); the underlying table columns are NOT NULL, so the
+        // narrower local row shape is the accurate one.
+        data: SnapshotDbRow[] | null;
+        error: { message: string } | null;
+      }>,
   );
 
   // day -> physical per SKU (max counted_at per day wins)

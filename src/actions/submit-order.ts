@@ -249,7 +249,7 @@ export async function submitOrderAction(
     // customer sees their just-submitted cart still in the builder on reload,
     // which is mildly confusing but not unsafe.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (admin as any)
+    await admin
       .from("draft_orders")
       .delete()
       .eq("customer_id", session.customerId)
