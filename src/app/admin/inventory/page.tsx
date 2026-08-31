@@ -107,10 +107,11 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
     all: scoped.length,
   };
 
-  const defaultBucket: keyof BucketCounts =
-    counts.stockout > 0 ? "stockout" : counts.act_now > 0 ? "act_now" : "all";
+  // Default to ALL (Zach, 08-31-2026): the severity sort already floats
+  // stockout/act-now rows to the top and the alarm tabs carry their counts,
+  // so nothing urgent hides. Status filtering is opt-in from there.
   const activeBucket = (
-    sp.bucket && sp.bucket in counts ? sp.bucket : defaultBucket
+    sp.bucket && sp.bucket in counts ? sp.bucket : "all"
   ) as keyof BucketCounts;
 
   const sort = SORT_KEYS.includes(sp.sort as SortKey) ? (sp.sort as SortKey) : null;
@@ -266,10 +267,12 @@ export default async function AdminInventoryPage({ searchParams }: PageProps) {
             style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, alignItems: "start" }}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Picking a category resets the status filter to All — a
+                  category view starts unfiltered, then narrow as needed. */}
               <CategorySidebar
                 categories={data.categories}
                 active={activeCat}
-                makeHref={(cat) => makeHref({ cat, sort: null, dir: null })}
+                makeHref={(cat) => makeHref({ cat, sort: null, dir: null, bucket: "all" })}
               />
               {data.expectedOrders.length === 0 ? (
                 <div className="t-micro" style={{ color: "var(--warm)", padding: "0 2px" }}>

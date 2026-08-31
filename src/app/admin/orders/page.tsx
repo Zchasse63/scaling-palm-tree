@@ -65,7 +65,9 @@ export default async function AdminOrdersPage({ searchParams }: AdminOrdersPageP
       >
         <div className="flex flex-col" style={{ gap: 6 }}>
           <div className="t-eyebrow">Admin · Orders</div>
-          <div className="t-h1">All container orders</div>
+          {/* "All orders", not "container orders" — LTL and pickup orders
+              (A&D, SunCoast) live here too. Newest first. */}
+          <div className="t-h1">All orders</div>
         </div>
         <OrdersExportButton
           statuses={statuses}

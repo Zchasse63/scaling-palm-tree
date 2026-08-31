@@ -39,7 +39,7 @@ test("P3-02 admin /admin/orders renders queue + filter bar", async ({ authentica
   const page = authenticatedPage;
   await page.goto("/admin/orders");
   await expect(
-    page.locator("div.t-h1", { hasText: "All container orders" }),
+    page.locator("div.t-h1", { hasText: "All orders" }),
   ).toBeVisible({ timeout: 10_000 });
   // Filter chips for at least these statuses
   await expect(page.locator("button", { hasText: "Submitted" }).first()).toBeVisible();
