@@ -4,7 +4,7 @@
 // No user session (the page is public; see PUBLIC_PATHS in src/middleware.ts).
 // Guarded by the shared secret `k` (env CALL_TAP_TOKEN) plus a per-IP rate limit.
 
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { adminClient } from "@/lib/supabase/admin";
 import {
@@ -25,11 +25,17 @@ function fail(status: number) {
   return NextResponse.json({ ok: false }, { status });
 }
 
-/** sha256 of the first x-forwarded-for value, first 16 hex chars; null when absent. */
-function ipHash(req: NextRequest): string | null {
-  const first = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (!first) return null;
-  return createHash("sha256").update(first).digest("hex").slice(0, 16);
+/**
+ * Rate-limit key for this request: an HMAC (keyed with the tap secret) of the client IP,
+ * taken from Netlify's trusted header first, then the LAST x-forwarded-for entry (the
+ * one appended by the edge, which a client cannot forge). Kept in memory only; never stored.
+ */
+function ipKey(req: NextRequest, secret: string): string | null {
+  const nf = req.headers.get("x-nf-client-connection-ip")?.trim();
+  const xff = req.headers.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean);
+  const ip = nf || (xff && xff.length ? xff[xff.length - 1] : "");
+  if (!ip) return null;
+  return createHmac("sha256", secret).update(ip).digest("hex").slice(0, 16);
 }
 
 // A casual visit gets an empty 405. Other unexported methods get Next's own 405.
@@ -50,9 +56,9 @@ export async function POST(req: NextRequest) {
   if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return fail(413);
 
   // Every request counts the same (valid, malformed, or wrong k). Requests with
-  // no x-forwarded-for share one bucket so they cannot dodge the limit.
-  const ip = ipHash(req);
-  if (!allowTap(ip ?? "no-ip")) return fail(429);
+  // no client IP header share one bucket so they cannot dodge the limit, and a
+  // global ceiling inside the limiter bounds the total regardless of key.
+  if (!allowTap(ipKey(req, expected) ?? "no-ip")) return fail(429);
 
   const read = readBody(await req.text());
   if (!read.ok) return fail(read.status);
@@ -72,7 +78,8 @@ export async function POST(req: NextRequest) {
         usdot: tap.usdot,
         source: tap.source,
         source_id: null,
-        metadata: { ua: req.headers.get("user-agent")?.slice(0, 200) ?? null, ip_hash: ip },
+        // No IP or IP hash is stored: the row only needs the number, the sheet key and the time.
+        metadata: { ua: req.headers.get("user-agent")?.slice(0, 200) ?? null },
       });
     if (error) {
       console.error("call-tap: insert failed", error.code, error.message);

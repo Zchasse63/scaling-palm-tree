@@ -86,4 +86,20 @@ describe("createRateLimiter", () => {
     expect(allow("b", 1000)).toBe(true);
     expect(allow("a", 1000 + 600_000)).toBe(true);
   });
+  it("refuses new keys once maxKeys live keys exist, and frees them when their window expires", () => {
+    const allow = createRateLimiter(30, 600_000, 3, 1000);
+    expect(allow("k1", 1000)).toBe(true);
+    expect(allow("k2", 1000)).toBe(true);
+    expect(allow("k3", 1000)).toBe(true);
+    expect(allow("k4", 1000)).toBe(false); // map is full of live keys
+    expect(allow("k1", 1000)).toBe(true); // existing keys still count normally
+    expect(allow("k4", 1000 + 600_000)).toBe(true); // old keys expired and were pruned
+  });
+  it("applies a global ceiling across all keys per window", () => {
+    const allow = createRateLimiter(30, 600_000, 1000, 5);
+    for (let i = 0; i < 5; i++) expect(allow("key" + i, 1000)).toBe(true);
+    expect(allow("key99", 1000)).toBe(false);
+    expect(allow("key0", 1000)).toBe(false);
+    expect(allow("key0", 1000 + 600_000)).toBe(true);
+  });
 });

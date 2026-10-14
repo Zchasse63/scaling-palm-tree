@@ -76,22 +76,35 @@ export function validateCallTap(body: Body, now: Date = new Date()): CallTap | n
 }
 
 /**
- * Fixed-window counter: allows `limit` hits per key per `windowMs`.
- * Holds request counts only (no auth state). Expired keys are pruned once the map grows.
+ * Fixed-window counter: allows `limit` hits per key per `windowMs`, plus a global
+ * ceiling of `globalLimit` hits per window across all keys, and at most `maxKeys`
+ * live keys (a flood of fresh keys is refused rather than grown). Holds request
+ * counts only (no auth state).
  */
-export function createRateLimiter(limit: number, windowMs: number) {
+export function createRateLimiter(limit: number, windowMs: number, maxKeys = 1000, globalLimit = 600) {
   const hits = new Map<string, { start: number; count: number }>();
+  let globalStart = 0;
+  let globalCount = 0;
   return function allow(key: string, now: number = Date.now()): boolean {
-    if (hits.size > 1000) {
-      for (const [k, v] of hits) if (now - v.start >= windowMs) hits.delete(k);
+    if (now - globalStart >= windowMs) {
+      globalStart = now;
+      globalCount = 0;
     }
+    if (globalCount >= globalLimit) return false;
+
     const entry = hits.get(key);
     if (!entry || now - entry.start >= windowMs) {
+      if (!entry && hits.size >= maxKeys) {
+        for (const [k, v] of hits) if (now - v.start >= windowMs) hits.delete(k);
+        if (hits.size >= maxKeys) return false;
+      }
       hits.set(key, { start: now, count: 1 });
+      globalCount += 1;
       return true;
     }
     if (entry.count >= limit) return false;
     entry.count += 1;
+    globalCount += 1;
     return true;
   };
 }
