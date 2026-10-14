@@ -351,6 +351,57 @@ export type Database = {
           },
         ]
       }
+      call_events: {
+        Row: {
+          answered: boolean | null
+          company_id: string | null
+          created_at: string | null
+          direction: string | null
+          duration_sec: number | null
+          happened_at: string
+          id: string
+          kind: string
+          metadata: Json
+          person_id: string | null
+          phone_e164: string
+          source: string
+          source_id: string | null
+          usdot: string | null
+        }
+        Insert: {
+          answered?: boolean | null
+          company_id?: string | null
+          created_at?: string | null
+          direction?: string | null
+          duration_sec?: number | null
+          happened_at: string
+          id?: string
+          kind: string
+          metadata?: Json
+          person_id?: string | null
+          phone_e164: string
+          source: string
+          source_id?: string | null
+          usdot?: string | null
+        }
+        Update: {
+          answered?: boolean | null
+          company_id?: string | null
+          created_at?: string | null
+          direction?: string | null
+          duration_sec?: number | null
+          happened_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          person_id?: string | null
+          phone_e164?: string
+          source?: string
+          source_id?: string | null
+          usdot?: string | null
+        }
+        Relationships: []
+      }
       canonical_products: {
         Row: {
           basis_weight_lb: number | null

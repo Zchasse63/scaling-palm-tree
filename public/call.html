@@ -37,7 +37,7 @@
   document.title = 'Call ' + pretty;
   // Record the tap (fire and forget). The dialer opens whether or not this succeeds.
   try {
-    var ev = JSON.stringify({ phone: n, usdot: (q.get('u') || '').replace(/\D/g, ''), source: 'sheet', at: new Date().toISOString() });
+    var ev = JSON.stringify({ phone: n, usdot: (q.get('u') || '').replace(/\D/g, ''), k: q.get('k') || '', source: 'sheet', at: new Date().toISOString() });
     if (!(navigator.sendBeacon && navigator.sendBeacon('/api/call-tap', new Blob([ev], { type: 'application/json' })))) {
       fetch('/api/call-tap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ev, keepalive: true }).catch(function () {});
     }
