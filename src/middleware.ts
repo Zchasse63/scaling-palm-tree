@@ -18,6 +18,9 @@ export const config = {
 const PUBLIC_PATHS = new Set([
   "/signin",
   "/auth/callback",
+  // Prospect call sheet: static tap-to-dial page and the tap recorder it posts to.
+  "/call.html",
+  "/api/call-tap",
 ]);
 
 export async function middleware(req: NextRequest) {
